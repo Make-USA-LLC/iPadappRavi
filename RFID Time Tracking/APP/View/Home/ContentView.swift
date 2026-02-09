@@ -185,6 +185,7 @@ struct ContentView: View {
                         }
                     }
                 }
+                /*
                 // --- ADD THIS FINISH ALERT BLOCK ---
                         .alert(isPresented: $showingFinishConfirmation) {
                             Alert(
@@ -195,7 +196,7 @@ struct ContentView: View {
                                 },
                                 secondaryButton: .cancel()
                             )
-                        }
+                        }*/
                 .navigationViewStyle(.stack)
             }
             .edgesIgnoringSafeArea(.all)
