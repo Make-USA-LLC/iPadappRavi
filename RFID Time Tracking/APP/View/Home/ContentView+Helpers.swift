@@ -29,7 +29,7 @@ extension ContentView {
     // finish/reset the project. If SMTP is disabled, show an alert to the user.
      func sendEmailAndFinishProject() {
         if !viewModel.isProjectFinished {
-            viewModel.finishProject()
+            //viewModel.finishProject()
         }
         
         guard enableSmtpEmail else {
@@ -53,7 +53,7 @@ extension ContentView {
             
             switch result {
             case .success:
-                viewModel.saveFinalReportToFirestore()
+                viewModel.finishProject()
                 emailAlertTitle = "Success"
                 emailAlertMessage = "The project summary email has been sent. The project will now reset."
                 showingEmailAlert = true

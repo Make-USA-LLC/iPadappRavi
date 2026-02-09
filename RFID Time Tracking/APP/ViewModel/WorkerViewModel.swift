@@ -416,8 +416,7 @@ class WorkerViewModel: ObservableObject {
             
             saveFinalReportToFirestore()
             saveState()
-            pushStateToCloud(force: true)
-            sendHeartbeat(force: true)
+
         }
     
     private func updateCountdownTime() {
@@ -633,10 +632,12 @@ class WorkerViewModel: ObservableObject {
         storage.save(scanCount, forKey: "scanCount")
         storage.save(isBonusEligible, forKey: "isBonusEligible")
         storage.save(bonusIneligibleReason, forKey: "bonusIneligibleReason")
+        storage.save(lastCommandTimestamp ?? Date(), forKey: "lastCommandTimestamp")
     }
 
     private func loadState() {
         let storage = AppStateStorageManager.shared
+        lastCommandTimestamp = storage.loadDate(forKey: "lastCommandTimestamp") ?? Date()
         workers = storage.load([String: Worker].self, forKey: "savedWorkers") ?? [:]
         scanHistory = storage.load([ScanEvent].self, forKey: "scanHistory") ?? []
         projectEvents = storage.load([ProjectEvent].self, forKey: "projectEvents") ?? []
