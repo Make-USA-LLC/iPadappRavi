@@ -30,6 +30,9 @@ enum PauseType: Codable {
     case manual
     case manualLunch // New: For 30-min hard-coded pause
     case autoLunch   // New: For pausing only during a window
+    case qcCrew       // "Crew Oversight"
+        case qcComponent  // "Component Issues"
+        case technician
     
     // This case exists to help migrate older app versions
     case lunch

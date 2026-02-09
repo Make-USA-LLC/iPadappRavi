@@ -41,19 +41,18 @@ class WorkerViewModel: ObservableObject {
     @Published var isBonusEligible: Bool = true
     @Published var bonusIneligibleReason: String = ""
     
+    // --- CODES ---
+    @AppStorage("qcCode") var qcCode: String = "0340"
+    @AppStorage("techCode") var techCode: String = "6253"
+    
     private var timer: Timer?
     public var countdownSeconds: Int = 0
     @Published var originalCountdownSeconds: Int = 0
     
     // --- NEW: Dynamic Data ---
     @Published var projectQueue: [ProjectQueueItem] = []
-    @Published var availableCategories: [String] = [
-        "Fragrance", "Skin Care", "Kitting", "VOC"
-    ]
-    
-    @Published var availableSizes: [String] = [
-        "100ML", "50ML", "30ML", "15ML", "10ML", "7.5ML", "1.75ML", "4oz", "8oz", "other"
-    ]
+    @Published var availableCategories: [String] = [ "Fragrance", "Skin Care", "Kitting", "VOC" ]
+    @Published var availableSizes: [String] = [ "100ML", "50ML", "30ML", "15ML", "10ML", "7.5ML", "1.75ML", "4oz", "8oz", "other" ]
     var pendingQueueIdToDelete: String? = nil
     
     @Published var isPaused = true
@@ -95,50 +94,49 @@ class WorkerViewModel: ObservableObject {
 
         FirebaseManager.shared.observeAuthState { [weak self] _ in
             guard let self else { return }
-
             self.startTimer()
-
-            FirebaseManager.shared.listenToWorkers {
-                self.workerNameCache = $0
-            }
-
-            FirebaseManager.shared.listenToProjectQueue {
-                self.projectQueue = $0
-            }
-
+            FirebaseManager.shared.listenToWorkers { self.workerNameCache = $0 }
+            FirebaseManager.shared.listenToProjectQueue { self.projectQueue = $0 }
             FirebaseManager.shared.listenToProjectOptions { categories, sizes in
                 self.availableCategories = categories
                 self.availableSizes = sizes
             }
-
-            if !self.fleetIpadID.isEmpty {
-                self.connectToFleet()
-            }
+            if !self.fleetIpadID.isEmpty { self.connectToFleet() }
         }
     }
     
     // MARK: - Admin Functions
     func updateWorkerTotalTime(id: String, newTotalMinutes: Double) {
-        guard var worker = workers[id] else { return }
+        print("🛠️ Updating Worker: \(id). New Total: \(newTotalMinutes)")
+        
+        guard var worker = workers[id] else {
+            print("❌ Worker ID \(id) not found in active workers list.")
+            return
+        }
         
         let oldMinutes = worker.totalMinutesWorked
         let differenceInMinutes = newTotalMinutes - oldMinutes
         let differenceInSeconds = Int(differenceInMinutes * 60)
-        
-        print("👨‍🔧 Admin updating hours for \(id). Diff: \(differenceInMinutes)m")
         
         worker.totalMinutesWorked = newTotalMinutes
         workers[id] = worker
         
         countdownSeconds -= differenceInSeconds
         
-        // --- BONUS LOGIC FIX ---
-        if differenceInMinutes != 0 {
+        // Ensure bonus logic triggers safely with a small tolerance
+        if abs(differenceInMinutes) > 0.01 {
             isBonusEligible = false
-            bonusIneligibleReason = "One or More employees did not properly clock in"
+            bonusIneligibleReason = "Worker hours manually edited"
         }
-        // -----------------------
         
+        saveState()
+        pushStateToCloud(force: true)
+    }
+    
+    func cancelBonus() {
+        print("🚫 Manually cancelling bonus")
+        isBonusEligible = false
+        bonusIneligibleReason = "Manually cancelled by admin"
         saveState()
         pushStateToCloud(force: true)
     }
@@ -176,18 +174,14 @@ class WorkerViewModel: ObservableObject {
         guard countdownSeconds == 0 && workers.isEmpty && projectName.isEmpty else { return }
         guard let seconds = data["secondsRemaining"] as? Int, seconds > 0 else { return }
         
-        print("⚠️ Local state empty. Restoring active session from Cloud...")
-        
         if let val = data["companyName"] as? String { self.companyName = val }
         if let val = data["projectName"] as? String { self.projectName = val }
         if let val = data["lineLeaderName"] as? String { self.lineLeaderName = val }
         if let val = data["category"] as? String { self.category = val }
         if let val = data["projectSize"] as? String { self.projectSize = val }
         
-        // --- RESTORE BONUS FLAGS ---
         if let val = data["isBonusEligible"] as? Bool { self.isBonusEligible = val }
         if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
-        // --------------------------
         
         self.countdownSeconds = seconds
         self.originalCountdownSeconds = seconds
@@ -203,19 +197,67 @@ class WorkerViewModel: ObservableObject {
         }
     }
     
+    // MARK: - REMOTE COMMANDS
     func handleRemoteCommand(_ command: String) {
-        let parts = command.split(separator: "|", omittingEmptySubsequences: true)
+        print("📡 Received Remote Command: \(command)")
+        
+        let parts = command.split(separator: "|", omittingEmptySubsequences: false)
         guard let action = parts.first.map(String.init) else { return }
 
         switch action {
-        case "PRELOAD": handlePreloadCommand(parts)
-        case "TOGGLE": if isPaused { resumeTimer() } else { _ = pauseTimer(password: "REMOTE_OVERRIDE") }
-        case "LUNCH": _ = takeLunchBreak()
-        case "SAVE": saveJobToQueue()
-        case "RESET": parts.count > 1 ? handleSetTime(parts) : resetData()
-        case "SET_TIME": handleSetTime(parts)
-        case "FINISH": shouldTriggerFinishFlow = true
-        case "CLOCK_OUT": if parts.count > 1 { clockOut(for: String(parts[1])) }
+        case "PRELOAD":
+            let cleanParts = command.split(separator: "|", omittingEmptySubsequences: true)
+            handlePreloadCommand(cleanParts)
+            
+        case "TOGGLE":
+            if isPaused { resumeTimer() } else { _ = pauseTimer(password: "REMOTE_OVERRIDE") }
+            
+        case "LUNCH":
+            _ = takeLunchBreak()
+            
+        case "SAVE":
+            saveJobToQueue()
+            
+        case "RESET":
+            let cleanParts = command.split(separator: "|", omittingEmptySubsequences: true)
+            cleanParts.count > 1 ? handleSetTime(cleanParts) : resetData()
+            
+        case "SET_TIME":
+            let cleanParts = command.split(separator: "|", omittingEmptySubsequences: true)
+            handleSetTime(cleanParts)
+            
+        case "FINISH":
+            shouldTriggerFinishFlow = true
+            
+        case "CLOCK_OUT":
+            if parts.count > 1 {
+                let id = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                clockOut(for: id)
+            }
+            
+        // --- UPDATED: ROBUST EDIT PARSING ---
+        case "EDIT_WORKER":
+            if parts.count > 2 {
+                let rawId = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let rawMins = String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let minutes = Double(rawMins) {
+                    updateWorkerTotalTime(id: rawId, newTotalMinutes: minutes)
+                }
+            }
+        // ------------------------------------
+            
+        case "CANCEL_BONUS":
+            cancelBonus()
+            
+        case "QC_PAUSE_CREW":
+            _ = toggleQCPause(type: .qcCrew, code: "REMOTE_OVERRIDE")
+            
+        case "QC_PAUSE_COMP":
+            _ = toggleQCPause(type: .qcComponent, code: "REMOTE_OVERRIDE")
+            
+        case "TECH_PAUSE":
+            _ = toggleTechPause(code: "REMOTE_OVERRIDE")
+
         default: break
         }
     }
@@ -268,6 +310,7 @@ class WorkerViewModel: ObservableObject {
         pushStateToCloud(force: force)
     }
     
+    // MARK: - PAUSE LOGIC
     func pauseTimer(password: String) -> Bool {
         if password == "REMOTE_OVERRIDE" || password == UserDefaults.standard.string(forKey: AppStorageKeys.pausePassword) ?? "340340" {
             isPaused = true
@@ -279,6 +322,42 @@ class WorkerViewModel: ObservableObject {
             return true
         }
         return false
+    }
+    
+    func toggleQCPause(type: PauseType, code: String) -> Bool {
+        guard code == qcCode || code == "REMOTE_OVERRIDE" else { return false }
+        
+        if isPaused && pauseState == type {
+            resumeTimer()
+            return true
+        }
+        
+        isPaused = true
+        pauseState = type
+        if type == .qcCrew {
+            isBonusEligible = false
+            bonusIneligibleReason = "QC Pause: Crew Oversight"
+        }
+        projectEvents.append(ProjectEvent(timestamp: Date(), type: .pause))
+        saveState()
+        pushStateToCloud(force: true)
+        return true
+    }
+    
+    func toggleTechPause(code: String) -> Bool {
+        guard code == techCode || code == "REMOTE_OVERRIDE" else { return false }
+        
+        if isPaused && pauseState == .technician {
+            resumeTimer()
+            return true
+        }
+        
+        isPaused = true
+        pauseState = .technician
+        projectEvents.append(ProjectEvent(timestamp: Date(), type: .pause))
+        saveState()
+        pushStateToCloud(force: true)
+        return true
     }
     
     private func startTimer() {
@@ -386,38 +465,33 @@ class WorkerViewModel: ObservableObject {
     }
 
     func finishProject() {
-            // 1. Guard against running if already finished
-            guard !isProjectFinished else { return }
-            
-            // 2. LOCK IMMEDIATELY (Move this from the bottom to here)
-            isProjectFinished = true
-            // ------------------------------------------------------
+        guard !isProjectFinished else { return }
+        isProjectFinished = true // Immediate Lock
 
-            AudioPlayerManager.shared.playSound(named: "Cashier")
-            
-            isPaused = true
-            isCountingDown = false
-            timer?.invalidate()
-            let now = Date()
-            
-            for id in workers.keys {
-                if let clockInTime = workers[id]?.clockInTime {
-                    let timeWorkedInMinutes = now.timeIntervalSince(clockInTime) / 60
-                    workers[id]?.totalMinutesWorked += timeWorkedInMinutes
-                    let event = ScanEvent(cardID: id, timestamp: now, action: .clockOut)
-                    scanHistory.append(event)
-                }
+        AudioPlayerManager.shared.playSound(named: "Cashier")
+        
+        isPaused = true
+        isCountingDown = false
+        timer?.invalidate()
+        let now = Date()
+        
+        for id in workers.keys {
+            if let clockInTime = workers[id]?.clockInTime {
+                let timeWorkedInMinutes = now.timeIntervalSince(clockInTime) / 60
+                workers[id]?.totalMinutesWorked += timeWorkedInMinutes
+                let event = ScanEvent(cardID: id, timestamp: now, action: .clockOut)
+                scanHistory.append(event)
             }
-            
-            // (Removed "isProjectFinished = true" from here)
-            
-            hasUsedLunchBreak = false
-            lunchBreakStartTime = nil
-            
-            saveFinalReportToFirestore()
-            saveState()
-
         }
+        
+        hasUsedLunchBreak = false
+        lunchBreakStartTime = nil
+        
+        saveFinalReportToFirestore()
+        saveState()
+        pushStateToCloud(force: true)
+        sendHeartbeat(force: true)
+    }
     
     private func updateCountdownTime() {
         guard isCountingDown else { return }
@@ -480,6 +554,11 @@ class WorkerViewModel: ObservableObject {
     
     func resumeTimer() {
         guard !isProjectFinished else { return }
+        
+        // --- PREVENT UNAUTHORIZED RESUME ---
+        // QC Pauses must be unpaused via the specific toggle functions (with code)
+        if pauseState == .qcCrew || pauseState == .qcComponent { return }
+        
         isPaused = false
         pauseState = .running
         lastUpdateTime = Date()
@@ -679,19 +758,14 @@ class WorkerViewModel: ObservableObject {
             DispatchQueue.main.async {
                 self.restoreFromCloud(data: data)
                 
-                // --- CRITICAL FIX START: Only update local if cloud is NOT empty ---
-                // This prevents the iPad from being wiped by stale cloud data while waiting for a push
                 if let val = data["companyName"] as? String, !val.isEmpty { self.companyName = val }
                 if let val = data["projectName"] as? String, !val.isEmpty { self.projectName = val }
                 if let val = data["category"] as? String { self.category = val }
                 if let val = data["projectSize"] as? String { self.projectSize = val }
                 if let val = data["lineLeaderName"] as? String, !val.isEmpty { self.lineLeaderName = val }
-                // --- CRITICAL FIX END ---
                 
-                // --- SYNC BONUS FLAGS ---
                 if let val = data["isBonusEligible"] as? Bool { if self.isBonusEligible != val { self.isBonusEligible = val } }
                 if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
-                // -----------------------
 
                 var logsUpdated = false
                 if let histArray = data["scanHistory"] as? [[String: Any]] {

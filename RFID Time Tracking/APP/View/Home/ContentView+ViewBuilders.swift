@@ -1,17 +1,12 @@
-//
-//  ContentView+ViewBuilders.swift
-//  RFID Time Tracking
-//
-//
-import Foundation
 import SwiftUI
 
-//MARK: VIEW BUILDERS
+// MARK: - VIEW BUILDERS EXTENSION
 extension ContentView {
+    
+    // MARK: - Waiting For Command
     @ViewBuilder
-     func waitingForCommandScreen() -> some View {
+    func waitingForCommandScreen() -> some View {
         VStack(spacing: 30) {
-            // Connection Status
             Text(viewModel.fleetIpadID.isEmpty ? "NO ID CONFIG" : "CONNECTED: \(viewModel.fleetIpadID)")
                 .font(.headline)
                 .padding(10)
@@ -19,7 +14,6 @@ extension ContentView {
                 .cornerRadius(8)
                 .foregroundColor(viewModel.fleetIpadID.isEmpty ? .red : .green)
             
-            // 1. PROJECT QUEUE SELECTOR
             if !viewModel.projectQueue.isEmpty {
                 Menu {
                     ForEach(viewModel.projectQueue) { job in
@@ -38,7 +32,7 @@ extension ContentView {
                     }
                     .font(.title2)
                     .padding()
-                    .frame(minWidth: 300) // Ensure consistent width
+                    .frame(minWidth: 300)
                     .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(12)
@@ -53,17 +47,11 @@ extension ContentView {
                     .cornerRadius(8)
             }
             
-            // 2. --- NEW: MANUAL SETUP BUTTON ---
             Button(action: {
-                // Clear old data to prevent carry-over
                 viewModel.companyName = ""
                 viewModel.projectName = ""
                 viewModel.lineLeaderName = ""
-                
-                // Trigger the view change
-                withAnimation {
-                    viewModel.showManualSetup = true
-                }
+                withAnimation { viewModel.showManualSetup = true }
             }) {
                 HStack {
                     Image(systemName: "square.and.pencil")
@@ -71,20 +59,19 @@ extension ContentView {
                 }
                 .font(.title2)
                 .padding()
-                .frame(minWidth: 300) // Match width of menu above
-                .background(Color.orange) // Distinct color
+                .frame(minWidth: 300)
+                .background(Color.orange)
                 .foregroundColor(.white)
                 .cornerRadius(12)
                 .shadow(radius: 5)
             }
             .padding(.horizontal, 40)
-            // -----------------------------------
         }
     }
     
-    // MARK: - NEW: Project Info Screen (Screen 1)
+    // MARK: - Project Info Screen
     @ViewBuilder
-     func projectInfoScreen(geometry: GeometryProxy) -> some View {
+    func projectInfoScreen(geometry: GeometryProxy) -> some View {
         let g = geometry.size
         let isLandscape = g.width > g.height
         
@@ -94,21 +81,27 @@ extension ContentView {
         let vSpacing = g.height * (isLandscape ? 0.02 : 0.04)
         
         VStack(spacing: vSpacing) {
-            // --- 2. STANDARD INPUTS ---
             
-            inputButtonViewBuilder(text: companyNameInput.isEmpty ? "Company Name" : companyNameInput, width: fieldWidth, height: fieldMinHeight, fontSize: fieldFontSize, isEmpty: companyNameInput.isEmpty) {
-                withAnimation {
-                    showingCompanyKeyboard = true
-                }
+            inputButtonViewBuilder(
+                text: companyNameInput.isEmpty ? "Company Name" : companyNameInput,
+                width: fieldWidth,
+                height: fieldMinHeight,
+                fontSize: fieldFontSize,
+                isEmpty: companyNameInput.isEmpty
+            ) {
+                withAnimation { showingCompanyKeyboard = true }
             }
             
-            inputButtonViewBuilder(text: projectNameInput.isEmpty ? "Project Name" : projectNameInput, width: fieldWidth, height: fieldMinHeight, fontSize: fieldFontSize, isEmpty: projectNameInput.isEmpty) {
-                withAnimation {
-                    showingProjectKeyboard = true
-                }
+            inputButtonViewBuilder(
+                text: projectNameInput.isEmpty ? "Project Name" : projectNameInput,
+                width: fieldWidth,
+                height: fieldMinHeight,
+                fontSize: fieldFontSize,
+                isEmpty: projectNameInput.isEmpty
+            ) {
+                withAnimation { showingProjectKeyboard = true }
             }
             
-            // --- LINE LEADER SCAN INPUT ---
             VStack(alignment: .leading, spacing: 2) {
                 if !lineLeaderNameInput.isEmpty {
                     Text("Line Leader").font(.caption).foregroundColor(.gray)
@@ -129,7 +122,6 @@ extension ContentView {
                     }
             }
             
-            // --- 3. DYNAMIC CATEGORY DROPDOWN ---
             HStack {
                 Text("Category:")
                     .font(.system(size: fieldFontSize * 0.8))
@@ -151,7 +143,6 @@ extension ContentView {
             .cornerRadius(10)
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.gray.opacity(0.5), lineWidth: 1))
             
-            // --- 4. DYNAMIC SIZE DROPDOWN ---
             HStack {
                 Text("Size:")
                     .font(.system(size: fieldFontSize * 0.8))
@@ -202,27 +193,21 @@ extension ContentView {
         }
     }
     
-    // MARK: - MODIFIED: Timer Input Screen (Screen 2)
+    // MARK: - Timer Input Screen
     @ViewBuilder
-     func timerInputScreen(geometry: GeometryProxy) -> some View {
-        
+    func timerInputScreen(geometry: GeometryProxy) -> some View {
         let g = geometry.size
         let isLandscape = g.width > g.height
-        
         let keyWidth = min(g.width * (isLandscape ? 0.15 : 0.2), 100.0)
         let keyHeight = keyWidth * 0.65
-        
         let boxWidth = min(g.width * (isLandscape ? 0.2 : 0.25), 160.0)
         let boxHeight = boxWidth * 0.55
         let boxFontSize = boxHeight * (isLandscape ? 0.45 : 0.5)
-        
         let startButtonWidth = min(g.width * (isLandscape ? 0.4 : 0.5), 280.0)
         let startButtonHeight = min(g.height * (isLandscape ? 0.11 : 0.09), 70.0)
-        
         let vSpacing = g.height * (isLandscape ? 0.01 : 0.02)
         
         VStack(spacing: vSpacing) {
-            
             Text("Set Timer Duration")
                 .font(.system(size: min(g.width * (isLandscape ? 0.04 : 0.05), 30), weight: .semibold))
                 .padding(.top, 40)
@@ -271,12 +256,7 @@ extension ContentView {
                 let h = Int(hoursInput) ?? 0
                 let m = Int(minutesInput) ?? 0
                 let s = Int(secondsInput) ?? 0
-                
-                viewModel.resetTimer(
-                    hours: h,
-                    minutes: m,
-                    seconds: s
-                )
+                viewModel.resetTimer(hours: h, minutes: m, seconds: s)
                 isReset = false
                 showingTimerInputSheet = false
             }
@@ -296,24 +276,22 @@ extension ContentView {
         .edgesIgnoringSafeArea(.all)
     }
     
-    
     // MARK: - Timer Running Screen
-    // Main operational UI where the operator scans RFID cards and controls
-    // the running timer (pause, lunch, reset, finish project).
     @ViewBuilder
-     func timerRunningScreen() -> some View {
+    func timerRunningScreen() -> some View {
         GeometryReader { geometry in
-            // SCALED DOWN SIZES (approx 20% smaller than before)
             let timerFontSize = min(geometry.size.width * 0.18, 200)
             let headerFontSize = min(geometry.size.width * 0.05, 40)
             let subHeaderFontSize = min(geometry.size.width * 0.04, 30)
             
             VStack(spacing: 0) {
+                // TIMER DISPLAY
                 Text(viewModel.timerText)
                     .font(.system(size: timerFontSize, weight: .bold, design: .monospaced))
                     .minimumScaleFactor(0.5).lineLimit(1).foregroundColor(.black)
                     .frame(maxWidth: .infinity).frame(height: timerFontSize * 1.1).padding(.top, 20)
                 
+                // INFO
                 if !viewModel.companyName.isEmpty {
                     Text(viewModel.companyName).font(.system(size: headerFontSize, weight: .medium))
                         .foregroundColor(.black).padding(.bottom, 2).lineLimit(1).minimumScaleFactor(0.5).frame(height: headerFontSize).frame(maxWidth: .infinity).multilineTextAlignment(.center)
@@ -329,24 +307,16 @@ extension ContentView {
                         .foregroundColor(.black).padding(.bottom, 2).lineLimit(1).minimumScaleFactor(0.5).frame(height: subHeaderFontSize).frame(maxWidth: .infinity).multilineTextAlignment(.center)
                 }
                 
-                // --- MODIFIED: ADD "Who's In" Button Next to Counter ---
+                // --- WHO'S IN & PROCEDURES BUTTONS ---
                 HStack(spacing: 15) {
                     Text("People Clocked In: \(viewModel.totalPeopleWorking)")
                         .font(.system(size: headerFontSize, weight: .medium))
                         .foregroundColor(.black)
                     
-                    // The button that triggers the sheet
                     Button(action: {
-                        // 1. Force Keyboard to Close immediately
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                        
-                        // 2. Clear focus state variables
                         isRFIDFieldFocused = false
-                        
-                        // 3. Wait a tiny bit for keyboard animation, then show sheet
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            showingWhosInSheet = true
-                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { showingWhosInSheet = true }
                     }) {
                         HStack(spacing: 5) {
                             Image(systemName: "list.bullet.rectangle.portrait")
@@ -359,79 +329,105 @@ extension ContentView {
                         .foregroundColor(.blue)
                         .cornerRadius(8)
                     }
+                    
+                    Button(action: { showingProceduresSheet = true }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "exclamationmark.triangle")
+                            Text("Procedures")
+                        }
+                        .font(.system(size: headerFontSize * 0.5, weight: .bold))
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(Color.purple.opacity(0.1))
+                        .foregroundColor(.purple)
+                        .cornerRadius(8)
+                    }
                 }
                 .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
-                // --------------------------------------------------------
                 
-                // REDUCED BUTTON SIZES
                 let buttonWidth = min(geometry.size.width * 0.28, 220.0)
                 let buttonHeight = min(geometry.size.height * 0.10, 80.0)
                 let buttonFont = Font.system(size: min(buttonWidth * 0.12, 22), weight: .semibold)
                 
-                // --- SPLIT INTO 2 ROWS FOR BETTER FIT ---
+                // CONTROLS
                 VStack(spacing: 15) {
-                    
-                    // ROW 1: PAUSE, LUNCH, SAVE
-                    HStack(spacing: 20) {
-                        Button(action: { if viewModel.isPaused { viewModel.resumeTimer() } else { showingPasswordSheet = true } }) {
-                            Text(viewModel.isPaused ? "Unpause" : "Pause")
-                                .font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
-                                .background(viewModel.isPaused ? Color.green : Color.blue).foregroundColor(.white).cornerRadius(14)
+                    // --- LOCKED STATE OVERLAY LOGIC ---
+                    if viewModel.pauseState == .qcCrew || viewModel.pauseState == .qcComponent {
+                        VStack(spacing: 10) {
+                            Text("⚠️ QC PAUSE ⚠️").font(.largeTitle).bold().foregroundColor(.red)
+                            Text(viewModel.pauseState == .qcCrew ? "CREW OVERSIGHT" : "COMPONENT ISSUE").font(.title)
+                            Button("ENTER QC CODE TO UNLOCK") {
+                                showingQCUnlockAlert = true
+                            }
+                            .font(.title).bold()
+                            .padding()
+                            .background(Color.red).foregroundColor(.white).cornerRadius(10)
                         }
-                        .disabled(viewModel.isProjectFinished).opacity(viewModel.isProjectFinished ? 0.5 : 1.0)
+                        .frame(maxWidth: .infinity, maxHeight: 180)
+                        .background(Color.white.opacity(0.9))
+                    } else if viewModel.pauseState == .technician {
+                        VStack(spacing: 10) {
+                            Text("🔧 TECH PAUSE 🔧").font(.largeTitle).bold().foregroundColor(.orange)
+                            Text("MACHINE MALFUNCTION").font(.title)
+                            Button("RESUME (TECH)") { viewModel.resumeTimer() }
+                                .font(.title).bold().padding().background(Color.green).foregroundColor(.white).cornerRadius(10)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: 180)
+                        .background(Color.white.opacity(0.9))
+                    } else {
+                        // NORMAL CONTROLS
+                        HStack(spacing: 20) {
+                            Button(action: { if viewModel.isPaused { viewModel.resumeTimer() } else { showingPasswordSheet = true } }) {
+                                Text(viewModel.isPaused ? "Unpause" : "Pause")
+                                    .font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
+                                    .background(viewModel.isPaused ? Color.green : Color.blue).foregroundColor(.white).cornerRadius(14)
+                            }
+                            .disabled(viewModel.isProjectFinished).opacity(viewModel.isProjectFinished ? 0.5 : 1.0)
+                            
+                            Button(action: {
+                                let feedback = viewModel.takeLunchBreak()
+                                if feedback == .ignoredPaused { showBanner(message: "Cannot take lunch while manually paused.", type: .warning) }
+                                else if feedback == .ignoredNoWorkers { showBanner(message: "Cannot take lunch: No workers clocked in.", type: .warning) }
+                            }) {
+                                Text("Lunch").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
+                                    .background(viewModel.hasUsedLunchBreak ? Color.gray : Color.orange).foregroundColor(.white).cornerRadius(14)
+                            }
+                            .disabled(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0)
+                            .opacity(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0 ? 0.5 : 1.0)
+                            
+                            Button(action: { viewModel.saveJobToQueue() }) {
+                                Text("Save").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
+                                    .background(Color.purple).foregroundColor(.white).cornerRadius(14)
+                            }
+                            .disabled(viewModel.isProjectFinished).opacity(viewModel.isProjectFinished ? 0.5 : 1.0)
+                        }
                         
-                        Button(action: {
-                            let feedback = viewModel.takeLunchBreak()
-                            if feedback == .ignoredPaused { showBanner(message: "Cannot take lunch while manually paused.", type: .warning) }
-                            else if feedback == .ignoredNoWorkers { showBanner(message: "Cannot take lunch: No workers clocked in.", type: .warning) }
-                        }) {
-                            Text("Lunch").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
-                                .background(viewModel.hasUsedLunchBreak ? Color.gray : Color.orange).foregroundColor(.white).cornerRadius(14)
-                        }
-                        .disabled(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0)
-                        .opacity(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0 ? 0.5 : 1.0)
-                        
-                        // --- NEW SAVE BUTTON ---
-                        Button(action: { viewModel.saveJobToQueue() }) {
-                            Text("Save").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
-                                .background(Color.purple).foregroundColor(.white).cornerRadius(14)
-                        }
-                        .disabled(viewModel.isProjectFinished).opacity(viewModel.isProjectFinished ? 0.5 : 1.0)
-                    }
-                    
-                    // ROW 2: RESET, FINISH
-                    HStack(spacing: 20) {
-                        Button(action: { showingResetPasswordSheet = true }) {
-                            Text("Reset").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
-                                .background(Color.red).foregroundColor(.white).cornerRadius(14)
-                        }
-                        
-                        Button(action: {
-                            // OLD: sendEmailAndFinishProject()
-                            // NEW:
-                            showingFinishConfirmation = true
-                        }) {
-                            Text("Finish").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
-                                .background(Color.green).foregroundColor(.white).cornerRadius(14)
-                        }
-                        .disabled(isSendingEmail).opacity(isSendingEmail ? 0.5 : 1.0)
-                        // This Alert is attached directly to the button to avoid conflicts
-                        .alert(isPresented: $showingFinishConfirmation) {
-                            Alert(
-                                title: Text("Finish Project?"),
-                                message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers."),
-                                primaryButton: .destructive(Text("Finish")) {
-                                    sendEmailAndFinishProject()
-                                },
-                                secondaryButton: .cancel()
-                            )
+                        HStack(spacing: 20) {
+                            Button(action: { showingResetPasswordSheet = true }) {
+                                Text("Reset").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
+                                    .background(Color.red).foregroundColor(.white).cornerRadius(14)
+                            }
+                            
+                            Button(action: { showingFinishConfirmation = true }) {
+                                Text("Finish").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
+                                    .background(Color.green).foregroundColor(.white).cornerRadius(14)
+                            }
+                            .disabled(isSendingEmail).opacity(isSendingEmail ? 0.5 : 1.0)
+                            .alert(isPresented: $showingFinishConfirmation) {
+                                Alert(
+                                    title: Text("Finish Project?"),
+                                    message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers."),
+                                    primaryButton: .destructive(Text("Finish")) { sendEmailAndFinishProject() },
+                                    secondaryButton: .cancel()
+                                )
+                            }
                         }
                     }
                 }
                 .padding(.bottom, 20)
                 
-                // RFID Input Field
+                // RFID Input
                 VStack(spacing: 10) {
                     TextField("Scan RFID Card", text: $rfidInput)
                         .font(.system(size: min(geometry.size.width * 0.04, 28)))
@@ -444,11 +440,41 @@ extension ContentView {
                 .padding(.bottom, 10)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .alert("QC Unlock", isPresented: $showingQCUnlockAlert) {
+                SecureField("QC Code", text: $qcUnlockCode)
+                Button("Unlock") {
+                    _ = viewModel.toggleQCPause(type: viewModel.pauseState, code: qcUnlockCode)
+                    qcUnlockCode = ""
+                }
+                Button("Cancel", role: .cancel) { }
+            }
+        }
+    }
+    
+    // MARK: - Helpers
+    @ViewBuilder
+    func inputButtonViewBuilder(text: String, width: CGFloat, height: CGFloat, fontSize: CGFloat, isEmpty: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(text)
+                    .font(.system(size: fontSize))
+                    .foregroundColor(isEmpty ? .gray : .black)
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: width)
+            .frame(height: height)
+            .background(Color.white.opacity(0.8))
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+            )
         }
     }
     
     @ViewBuilder
-     func timeInputBox(title: String, text: Binding<String>, selected: Bool, width: CGFloat, height: CGFloat, fontSize: CGFloat) -> some View {
+    func timeInputBox(title: String, text: Binding<String>, selected: Bool, width: CGFloat, height: CGFloat, fontSize: CGFloat) -> some View {
         VStack {
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
@@ -472,7 +498,7 @@ extension ContentView {
     }
     
     @ViewBuilder
-     func numButton(_ label: String, color: Color = .gray, width: CGFloat, height: CGFloat) -> some View {
+    func numButton(_ label: String, color: Color = .gray, width: CGFloat, height: CGFloat) -> some View {
         Button(action: { handleNumberPress(label) }) {
             Text(label)
                 .frame(width: width, height: height)
@@ -484,7 +510,7 @@ extension ContentView {
     }
     
     @ViewBuilder
-     func keypadButton(_ label: String, color: Color = .gray, size: CGFloat, fontSize: CGFloat, action: @escaping () -> Void) -> some View {
+    func keypadButton(_ label: String, color: Color = .gray, size: CGFloat, fontSize: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
                 .frame(width: size, height: size)
@@ -492,6 +518,246 @@ extension ContentView {
                 .foregroundColor(.white)
                 .cornerRadius(14)
                 .font(.system(size: fontSize, weight: .semibold))
+        }
+    }
+}
+
+// MARK: - PROCEDURES VIEW & SUBCOMPONENTS (APPENDED)
+
+struct ProceduresView: View {
+    @ObservedObject var viewModel: WorkerViewModel
+    @Environment(\.presentationMode) var presentationMode
+    
+    // UI State
+    @State private var inputCode = ""
+    @State private var targetAction: PauseType? = nil
+    @State private var showError = false
+    
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 15) {
+                
+                // --- TOP BAR ---
+                HStack {
+                    Text("Select Procedure")
+                        .font(.system(size: 30, weight: .bold))
+                    Spacer()
+                    Button("Close") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                    .font(.headline)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(10)
+                }
+                .padding([.top, .horizontal])
+                
+                // --- SELECTION BUTTONS (Top Half) ---
+                HStack(spacing: 20) {
+                    ProcedureSelectionButton(
+                        title: "QC: Crew Oversight",
+                        icon: "exclamationmark.triangle.fill",
+                        color: .purple,
+                        subtitle: "Cancels Bonus",
+                        isSelected: targetAction == .qcCrew
+                    ) {
+                        targetAction = .qcCrew
+                        inputCode = ""
+                        showError = false
+                    }
+                    
+                    ProcedureSelectionButton(
+                        title: "QC: Component Issue",
+                        icon: "shippingbox.fill",
+                        color: .blue,
+                        subtitle: nil,
+                        isSelected: targetAction == .qcComponent
+                    ) {
+                        targetAction = .qcComponent
+                        inputCode = ""
+                        showError = false
+                    }
+                    
+                    ProcedureSelectionButton(
+                        title: "Machine/Tech Issue",
+                        icon: "wrench.fill",
+                        color: .orange,
+                        subtitle: nil,
+                        isSelected: targetAction == .technician
+                    ) {
+                        targetAction = .technician
+                        inputCode = ""
+                        showError = false
+                    }
+                }
+                .frame(maxHeight: 180)
+                .padding(.horizontal)
+                
+                Divider()
+                
+                // --- PIN PAD SECTION ---
+                if let target = targetAction {
+                    // Wrap the bottom section in a ScrollView so it never cuts off
+                    ScrollView {
+                        VStack(spacing: 15) {
+                            Text("Enter \(target == .technician ? "Tech" : "QC") Code")
+                                .font(.headline)
+                                .foregroundColor(.gray)
+                            
+                            // Code Dots
+                            HStack(spacing: 15) {
+                                ForEach(0..<4) { index in
+                                    Circle()
+                                        .stroke(Color.gray, lineWidth: 2)
+                                        .background(Circle().fill(inputCode.count > index ? Color.black : Color.clear))
+                                        .frame(width: 15, height: 15)
+                                }
+                            }
+                            
+                            if showError {
+                                Text("Incorrect Code").font(.caption).bold().foregroundColor(.red)
+                            } else {
+                                Text(" ").font(.caption)
+                            }
+                            
+                            // CUSTOM KEYPAD
+                            CustomPinPad(code: $inputCode, onCommit: {
+                                attemptUnlock(target: target)
+                            })
+                        }
+                        .padding(.bottom, 20)
+                    }
+                    .frame(maxWidth: 500)
+                    .background(Color.white)
+                    .cornerRadius(20)
+                    .shadow(radius: 5)
+                    .padding(.horizontal)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    Spacer()
+                    Text("Select a procedure above to begin.")
+                        .font(.title3)
+                        .foregroundColor(.gray.opacity(0.5))
+                    Spacer()
+                }
+            }
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+    }
+    
+    // MARK: - Logic
+    func attemptUnlock(target: PauseType) {
+        var success = false
+        if target == .technician {
+            success = viewModel.toggleTechPause(code: inputCode)
+        } else {
+            success = viewModel.toggleQCPause(type: target, code: inputCode)
+        }
+        
+        if success {
+            presentationMode.wrappedValue.dismiss()
+        } else {
+            showError = true
+            inputCode = ""
+            let generator = UINotificationFeedbackGenerator()
+            generator.notificationOccurred(.error)
+        }
+    }
+}
+
+// MARK: - Subcomponents
+
+struct ProcedureSelectionButton: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let subtitle: String?
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 35))
+                
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.center)
+                
+                if let sub = subtitle {
+                    Text(sub)
+                        .font(.system(size: 10))
+                        .fontWeight(.black)
+                        .padding(4)
+                        .background(Color.white.opacity(0.3))
+                        .cornerRadius(4)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(isSelected ? color : color.opacity(0.15))
+            .foregroundColor(isSelected ? .white : color)
+            .cornerRadius(15)
+            .overlay(
+                RoundedRectangle(cornerRadius: 15)
+                    .stroke(color, lineWidth: isSelected ? 3 : 1)
+            )
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+            .animation(.spring(), value: isSelected)
+        }
+    }
+}
+
+struct CustomPinPad: View {
+    @Binding var code: String
+    var onCommit: () -> Void
+    
+    let columns = [
+        GridItem(.fixed(80), spacing: 15),
+        GridItem(.fixed(80), spacing: 15),
+        GridItem(.fixed(80), spacing: 15)
+    ]
+    
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 15) {
+            ForEach(1...9, id: \.self) { num in
+                PinButton(label: "\(num)") {
+                    if code.count < 4 { code.append("\(num)") }
+                }
+            }
+            
+            PinButton(label: "⌫", color: .red.opacity(0.1), textColor: .red) {
+                if !code.isEmpty { code.removeLast() }
+            }
+            
+            PinButton(label: "0") {
+                if code.count < 4 { code.append("0") }
+            }
+            
+            PinButton(label: "OK", color: .green, textColor: .white) {
+                onCommit()
+            }
+        }
+    }
+}
+
+struct PinButton: View {
+    let label: String
+    var color: Color = Color.gray.opacity(0.1)
+    var textColor: Color = .primary
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.title2)
+                .fontWeight(.bold)
+                .frame(width: 80, height: 60) // Adjusted size for landscape iPad
+                .background(color)
+                .foregroundColor(textColor)
+                .cornerRadius(12)
         }
     }
 }

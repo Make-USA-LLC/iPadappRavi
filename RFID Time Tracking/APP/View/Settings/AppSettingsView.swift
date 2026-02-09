@@ -72,6 +72,42 @@ struct AppSettingsView: View {
                 }
             }
             
+            Section(header: Text("Procedure Codes"), footer: Text("Codes required for QC and Technician specific pauses.")) {
+                // QC Code Button
+                Button(action: {
+                    withAnimation {
+                        settingsNumericKeyboardBinding = $viewModel.qcCode
+                        showingSettingsNumericKeyboard = true
+                    }
+                }) {
+                    HStack {
+                        Text("QC Code")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        // Shows bullet points instead of plain text
+                        Text(viewModel.qcCode.isEmpty ? "Not Set" : String(repeating: "•", count: viewModel.qcCode.count))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                // Technician Code Button
+                Button(action: {
+                    withAnimation {
+                        settingsNumericKeyboardBinding = $viewModel.techCode
+                        showingSettingsNumericKeyboard = true
+                    }
+                }) {
+                    HStack {
+                        Text("Technician Code")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        // Shows bullet points instead of plain text
+                        Text(viewModel.techCode.isEmpty ? "Not Set" : String(repeating: "•", count: viewModel.techCode.count))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            
             Section(header: Text("Lunch Periods"), footer: Text("Set the start and end times for automatic lunch breaks. Tap Edit to delete.")) {
                 ForEach($viewModel.lunchPeriods) { $period in
                     HStack {
@@ -138,6 +174,11 @@ struct AppSettingsView: View {
                     viewModel.saveState()
                 }
                 .disabled(!viewModel.hasUsedLunchBreak)
+                Button("Cancel Project Bonus") {
+                        viewModel.cancelBonus()
+                    }
+                    .disabled(!viewModel.isBonusEligible) // Disable if already cancelled
+                    .foregroundColor(.red)
             }
             
             Section(header: Text("Categories"), footer: Text("Add, remove, or edit categories for the dropdown menu. Tap Edit to delete.")) {
