@@ -13,18 +13,15 @@ import FirebaseCore
 import FirebaseAuth
 
 // MARK: - ViewModel
-// The central ObservableObject that contains app state and business logic.
-// - Publishes properties the UI binds to
-// - Handles RFID scan processing, timer, pause/lunch logic, and persistence
 class WorkerViewModel: ObservableObject {
     // --- FIREBASE SYNC ---
     private var db = Firestore.firestore()
     private var listener: ListenerRegistration?
     private var lastCommandTimestamp: Date?
     
-    // --- NEW: Cloud Sync Throttle ---
+    // --- Cloud Sync Throttle ---
     private var lastCloudPushTime: Date = Date.distantPast
-    private let cloudPushInterval: TimeInterval = 5.0 // Sync every 5 seconds to prevent jitter
+    private let cloudPushInterval: TimeInterval = 5.0
     
     @Published var triggerQueueItem: ProjectQueueItem? = nil
     
@@ -39,6 +36,10 @@ class WorkerViewModel: ObservableObject {
     @Published var timerText: String = "00:00:00"
     @Published var isProjectFinished = false
     @Published var shouldTriggerFinishFlow = false
+    
+    // --- BONUS LOGIC ---
+    @Published var isBonusEligible: Bool = true
+    @Published var bonusIneligibleReason: String = ""
     
     private var timer: Timer?
     public var countdownSeconds: Int = 0
@@ -116,157 +117,119 @@ class WorkerViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Admin Functions
+    func updateWorkerTotalTime(id: String, newTotalMinutes: Double) {
+        guard var worker = workers[id] else { return }
+        
+        let oldMinutes = worker.totalMinutesWorked
+        let differenceInMinutes = newTotalMinutes - oldMinutes
+        let differenceInSeconds = Int(differenceInMinutes * 60)
+        
+        print("👨‍🔧 Admin updating hours for \(id). Diff: \(differenceInMinutes)m")
+        
+        worker.totalMinutesWorked = newTotalMinutes
+        workers[id] = worker
+        
+        countdownSeconds -= differenceInSeconds
+        
+        // --- BONUS LOGIC FIX ---
+        if differenceInMinutes != 0 {
+            isBonusEligible = false
+            bonusIneligibleReason = "One or More employees did not properly clock in"
+        }
+        // -----------------------
+        
+        saveState()
+        pushStateToCloud(force: true)
+    }
     
-    // --- NEW: Replay history to calculate total hours ---
     func reconstructStateFromLogs() {
         print("🔄 Reconstructing worker hours from history logs...")
-        
-        // 1. Reset Workers Dict
-        // We will rebuild it entirely from the logs to ensure accuracy
         var rebuiltWorkers: [String: Worker] = [:]
-        
-        // 2. Sort history to ensure we replay in chronological order
         let sortedHistory = scanHistory.sorted { $0.timestamp < $1.timestamp }
         
         for event in sortedHistory {
             let id = event.cardID
-            
-            // Get or Create Worker
             var worker = rebuiltWorkers[id] ?? Worker(id: id, clockInTime: nil, totalMinutesWorked: 0)
             
             if event.action == .clockIn {
-                // Set Clock In Time
                 worker.clockInTime = event.timestamp
             } else if event.action == .clockOut {
-                // Calculate duration if they were clocked in
                 if let start = worker.clockInTime {
                     let minutes = event.timestamp.timeIntervalSince(start) / 60
                     worker.totalMinutesWorked += minutes
                 }
-                // Clear Clock In (they are now out)
                 worker.clockInTime = nil
             }
-            
-            // Update Dictionary
             rebuiltWorkers[id] = worker
         }
-        
-        // 3. Apply to ViewModel
         self.workers = rebuiltWorkers
         self.recalcTotalPeopleWorking()
-        
-        print("✅ Reconstruct Complete. Total Workers: \(workers.count). Active: \(totalPeopleWorking)")
     }
 
     private func clearRemoteCommand() {
         guard !fleetIpadID.isEmpty else { return }
-
-        FirebaseManager.shared.pushFleetState(
-            fleetId: fleetIpadID,
-            data: ["remoteCommand": ""]
-        )
+        FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: ["remoteCommand": ""])
     }
 
-    
-    // --- NEW: Helper to restore state after a crash ---
     func restoreFromCloud(data: [String: Any]) {
-        // SAFETY CHECK: Only restore if the iPad is currently "Idle" / Empty.
-        // This prevents the cloud from overwriting local work if the internet just blipped.
         guard countdownSeconds == 0 && workers.isEmpty && projectName.isEmpty else { return }
-        
-        // Check if the cloud actually has an active job (time remaining)
         guard let seconds = data["secondsRemaining"] as? Int, seconds > 0 else { return }
         
         print("⚠️ Local state empty. Restoring active session from Cloud...")
         
-        // 1. Restore Project Info
         if let val = data["companyName"] as? String { self.companyName = val }
         if let val = data["projectName"] as? String { self.projectName = val }
         if let val = data["lineLeaderName"] as? String { self.lineLeaderName = val }
         if let val = data["category"] as? String { self.category = val }
         if let val = data["projectSize"] as? String { self.projectSize = val }
         
-        // 2. Restore Timer State
-        self.countdownSeconds = seconds
-        // We approximate the original time if it's not saved, or use seconds
-        self.originalCountdownSeconds = seconds
+        // --- RESTORE BONUS FLAGS ---
+        if let val = data["isBonusEligible"] as? Bool { self.isBonusEligible = val }
+        if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
+        // --------------------------
         
-        // Important: Restore as PAUSED for safety, so it doesn't tick down while offline
+        self.countdownSeconds = seconds
+        self.originalCountdownSeconds = seconds
         self.isCountingDown = false
         self.isPaused = true
         self.timerText = "Resumed: Press Start"
         
-        // 3. Restore Active Workers
         if let activeIDs = data["activeWorkers"] as? [String] {
             for id in activeIDs {
-                // Create a worker entry so they appear in the list.
-                // We set a dummy clock-in time because the exact start time isn't in the basic sync data,
-                // but this allows them to continue working.
                 self.workers[id] = Worker(id: id, clockInTime: Date(), totalMinutesWorked: 0)
             }
             self.totalPeopleWorking = activeIDs.count
         }
-        
-        print("✅ Restored session from Cloud successfully.")
     }
     
     func handleRemoteCommand(_ command: String) {
-
         let parts = command.split(separator: "|", omittingEmptySubsequences: true)
         guard let action = parts.first.map(String.init) else { return }
 
         switch action {
-
-        case "PRELOAD":
-            handlePreloadCommand(parts)
-
-        case "TOGGLE":
-            if isPaused {
-                resumeTimer()
-            } else {
-                _ = pauseTimer(password: "REMOTE_OVERRIDE")
-            }
-
-        case "LUNCH":
-            _ = takeLunchBreak()
-
-        case "SAVE":
-            saveJobToQueue()
-
-        case "RESET":
-            parts.count > 1 ? handleSetTime(parts) : resetData()
-
-        case "SET_TIME":
-            handleSetTime(parts)
-
-        case "FINISH":
-            shouldTriggerFinishFlow = true
-
-        case "CLOCK_OUT":
-            if parts.count > 1 {
-                clockOut(for: String(parts[1]))
-            }
-
-        default:
-            break
+        case "PRELOAD": handlePreloadCommand(parts)
+        case "TOGGLE": if isPaused { resumeTimer() } else { _ = pauseTimer(password: "REMOTE_OVERRIDE") }
+        case "LUNCH": _ = takeLunchBreak()
+        case "SAVE": saveJobToQueue()
+        case "RESET": parts.count > 1 ? handleSetTime(parts) : resetData()
+        case "SET_TIME": handleSetTime(parts)
+        case "FINISH": shouldTriggerFinishFlow = true
+        case "CLOCK_OUT": if parts.count > 1 { clockOut(for: String(parts[1])) }
+        default: break
         }
     }
 
     private func handlePreloadCommand(_ parts: [Substring]) {
-
         let totalSecs = parseTimeToSeconds(from: parts)
-
         originalCountdownSeconds = totalSecs
         countdownSeconds = totalSecs
-
         isPaused = true
         pauseState = .running
         isCountingDown = false
         isProjectFinished = false
         timerText = "00:00:00"
         showManualSetup = false
-
-        // DO NOT clear leader name (fleet already synced it)
 
         triggerQueueItem = ProjectQueueItem(
             id: "REMOTE_PRELOAD",
@@ -278,7 +241,9 @@ class WorkerViewModel: ObservableObject {
             lineLeaderName: lineLeaderName,
             createdAt: Date(),
             scanHistory: scanHistory,
-            projectEvents: projectEvents
+            projectEvents: projectEvents,
+            isBonusEligible: true,
+            bonusIneligibleReason: ""
         )
     }
 
@@ -294,93 +259,27 @@ class WorkerViewModel: ObservableObject {
 
     private func parseHMS(from parts: [Substring]) -> (h: Int, m: Int, s: Int)? {
         guard parts.count > 1 else { return nil }
-
         let timeParts = parts[1].split(separator: ":")
-        guard timeParts.count == 3,
-              let h = Int(timeParts[0]),
-              let m = Int(timeParts[1]),
-              let s = Int(timeParts[2]) else {
-            return nil
-        }
-
+        guard timeParts.count == 3, let h = Int(timeParts[0]), let m = Int(timeParts[1]), let s = Int(timeParts[2]) else { return nil }
         return (h, m, s)
     }
-
     
-    // 2. REPORT STATUS TO DASHBOARD
-    // Redirect all heartbeat calls to the main cloud sync function
     func sendHeartbeat(force: Bool = false) {
         pushStateToCloud(force: force)
     }
     
-    // 3. EXECUTE COMMANDS FROM WEB
-    func executeRemoteCommand(_ command: String) {
-        print("Remote Command Received: \(command)")
-        let parts = command.split(separator: "|")
-        let action = parts[0]
-        
-        switch action {
-        case "TOGGLE":
-            if isPaused { resumeTimer() } else { _ = pauseTimer(password: "REMOTE_OVERRIDE") }
-            
-        case "PAUSE":
-            _ = pauseTimer(password: "REMOTE_OVERRIDE")
-            
-        case "START":
-            // If command has time data (START|H:M:S), set it first
-            if parts.count > 1 {
-                let timeParts = parts[1].split(separator: ":")
-                if timeParts.count == 3, let h = Int(timeParts[0]), let m = Int(timeParts[1]), let s = Int(timeParts[2]) {
-                    resetTimer(hours: h, minutes: m, seconds: s)
-                }
-            } else {
-                resumeTimer()
-            }
-            
-        case "LUNCH":
-            _ = takeLunchBreak()
-            
-        case "RESET", "SET_TIME":
-            if parts.count > 1 {
-                let timeParts = parts[1].split(separator: ":")
-                if timeParts.count == 3, let h = Int(timeParts[0]), let m = Int(timeParts[1]), let s = Int(timeParts[2]) {
-                    resetTimer(hours: h, minutes: m, seconds: s)
-                }
-            } else {
-                // Default reset if no time provided
-                resetData()
-            }
-            
-        case "FINISH":
-            finishProject()
-            
-        default:
-            break
-        }
-        
-        // Update status immediately after a command
-        sendHeartbeat(force: true)
-    }
-    
-    // Helper to bypass password for remote commands
     func pauseTimer(password: String) -> Bool {
-        // If it's the remote override, skip password check
         if password == "REMOTE_OVERRIDE" || password == UserDefaults.standard.string(forKey: AppStorageKeys.pausePassword) ?? "340340" {
             isPaused = true
             pauseState = .manual
             pauseCount += 1
             projectEvents.append(ProjectEvent(timestamp: Date(), type: .pause))
             saveState()
-            pushStateToCloud(force: true) // Force update
+            pushStateToCloud(force: true)
             return true
         }
         return false
     }
-    
-    // --- FIREBASE LOGIC END ---
-    
-    
-    // ... [KEEP ALL YOUR EXISTING FUNCTIONS BELOW: startTimer, updateCountdownTime, etc.] ...
     
     private func startTimer() {
         guard !isProjectFinished else { return }
@@ -435,12 +334,8 @@ class WorkerViewModel: ObservableObject {
     func takeLunchBreak() -> LunchFeedback {
         guard !isProjectFinished else { return .success }
         
-        guard pauseState != .manual && pauseState != .autoLunch else {
-            return .ignoredPaused
-        }
-        guard totalPeopleWorking > 0 else {
-            return .ignoredNoWorkers
-        }
+        guard pauseState != .manual && pauseState != .autoLunch else { return .ignoredPaused }
+        guard totalPeopleWorking > 0 else { return .ignoredNoWorkers }
         
         isPaused = true
         pauseState = .manualLunch
@@ -449,21 +344,18 @@ class WorkerViewModel: ObservableObject {
         lunchCount += 1
         
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .lunch))
-        
         saveState()
-        pushStateToCloud(force: true) // Force update
+        pushStateToCloud(force: true)
         return .success
     }
     
     func startAutoLunch() {
         guard !isProjectFinished else { return }
-        
         isPaused = true
         pauseState = .autoLunch
         hasUsedLunchBreak = true
         lunchBreakStartTime = nil
         lunchCount += 1
-        
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .lunch))
         saveState()
         pushStateToCloud(force: true)
@@ -471,7 +363,6 @@ class WorkerViewModel: ObservableObject {
     
     func autoClearLunchLock() {
         guard hasUsedLunchBreak else { return }
-        
         let cal = Calendar.current
         let currentDate = Date()
         let currentHour = cal.component(.hour, from: currentDate)
@@ -495,50 +386,47 @@ class WorkerViewModel: ObservableObject {
     }
 
     func finishProject() {
-        AudioPlayerManager.shared.playSound(named: "Cashier")
-        
-        isPaused = true
-        isCountingDown = false
-        timer?.invalidate()
-        
-        let now = Date()
-        
-        // 1. Clock out all workers locally to finalize calculation
-        for id in workers.keys {
-            if let clockInTime = workers[id]?.clockInTime {
-                let timeWorkedInMinutes = now.timeIntervalSince(clockInTime) / 60
-                workers[id]?.totalMinutesWorked += timeWorkedInMinutes
-                
-                let event = ScanEvent(cardID: id, timestamp: now, action: .clockOut)
-                scanHistory.append(event)
+            // 1. Guard against running if already finished
+            guard !isProjectFinished else { return }
+            
+            // 2. LOCK IMMEDIATELY (Move this from the bottom to here)
+            isProjectFinished = true
+            // ------------------------------------------------------
+
+            AudioPlayerManager.shared.playSound(named: "Cashier")
+            
+            isPaused = true
+            isCountingDown = false
+            timer?.invalidate()
+            let now = Date()
+            
+            for id in workers.keys {
+                if let clockInTime = workers[id]?.clockInTime {
+                    let timeWorkedInMinutes = now.timeIntervalSince(clockInTime) / 60
+                    workers[id]?.totalMinutesWorked += timeWorkedInMinutes
+                    let event = ScanEvent(cardID: id, timestamp: now, action: .clockOut)
+                    scanHistory.append(event)
+                }
             }
+            
+            // (Removed "isProjectFinished = true" from here)
+            
+            hasUsedLunchBreak = false
+            lunchBreakStartTime = nil
+            
+            saveFinalReportToFirestore()
+            saveState()
+            pushStateToCloud(force: true)
+            sendHeartbeat(force: true)
         }
-        
-        isProjectFinished = true
-        hasUsedLunchBreak = false
-        lunchBreakStartTime = nil
-        
-        // 2. CRITICAL: Save Report immediately (Before Reset)
-//        saveFinalReportToFirestore()
-        
-        // 3. Sync final state to dashboard one last time
-        saveState()
-        pushStateToCloud(force: true)
-        sendHeartbeat(force: true)
-    }
     
     private func updateCountdownTime() {
         guard isCountingDown else { return }
         
         if self.pauseState == .manualLunch, let breakStart = lunchBreakStartTime {
-            let elapsed = Date().timeIntervalSince(breakStart)
-            if elapsed >= 1800 {
-                resumeTimer()
-            }
+            if Date().timeIntervalSince(breakStart) >= 1800 { resumeTimer() }
         } else if self.pauseState == .autoLunch {
-            if !isCurrentlyInLunchWindow() {
-                resumeTimer()
-            }
+            if !isCurrentlyInLunchWindow() { resumeTimer() }
         }
         
         checkForLunchBreak()
@@ -551,9 +439,7 @@ class WorkerViewModel: ObservableObject {
             
             let people = max(1, totalPeopleWorking)
             let timeToSubtract = max(1, Int(round(elapsed * Double(people))))
-            
             let previousSeconds = countdownSeconds
-            
             countdownSeconds -= timeToSubtract
             
             if previousSeconds > 0 && countdownSeconds <= 0 {
@@ -563,7 +449,6 @@ class WorkerViewModel: ObservableObject {
                     saveState()
                 }
             }
-            
         } else {
             lastUpdateTime = Date()
         }
@@ -575,9 +460,8 @@ class WorkerViewModel: ObservableObject {
         let seconds = absoluteSeconds % 60
         timerText = String(format: "%@%02d:%02d:%02d", prefix, hours, minutes, seconds)
         
-        // --- MODIFIED: Save local state, but throttle Cloud Sync ---
-        saveState() // Save local changes
-        pushStateToCloud(force: false) // Only push if interval passed
+        saveState()
+        pushStateToCloud(force: false)
     }
     
     func resetTimer(hours: Int, minutes: Int, seconds: Int) {
@@ -588,13 +472,11 @@ class WorkerViewModel: ObservableObject {
         let totalSeconds = hours * 3600 + minutes * 60 + seconds
         countdownSeconds = totalSeconds
         originalCountdownSeconds = totalSeconds
-        
         isCountingDown = true
         isPaused = false
-        
         startTimer()
         saveState()
-        pushStateToCloud(force: true) // Force update on reset
+        pushStateToCloud(force: true)
     }
     
     func resumeTimer() {
@@ -605,7 +487,7 @@ class WorkerViewModel: ObservableObject {
         lunchBreakStartTime = nil
         startTimer()
         saveState()
-        pushStateToCloud(force: true) // Force update on resume
+        pushStateToCloud(force: true)
     }
     
     func handleRFIDScan(for id: String) -> ScanFeedback? {
@@ -614,9 +496,7 @@ class WorkerViewModel: ObservableObject {
             else if isPaused { return .ignoredPaused }
             return nil
         }
-        
         scanCount += 1
-        
         let action: ScanAction = workers[id]?.clockInTime != nil ? .clockOut : .clockIn
         let event = ScanEvent(cardID: id, timestamp: Date(), action: action)
         scanHistory.append(event)
@@ -637,27 +517,22 @@ class WorkerViewModel: ObservableObject {
             workers[id] = worker
             recalcTotalPeopleWorking()
             saveState()
-            pushStateToCloud(force: true) // Force update on scan
+            pushStateToCloud(force: true)
         }
     }
     
     func clockOut(for id: String) {
         guard var worker = workers[id], let clockInTime = worker.clockInTime else { return }
-        
-        let isManualClockOut = scanHistory.last?.cardID != id
-        if isManualClockOut {
-            let event = ScanEvent(cardID: id, timestamp: Date(), action: .clockOut)
-            scanHistory.append(event)
+        if scanHistory.last?.cardID != id {
+            scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockOut))
             scanCount += 1
         }
-        
-        let timeWorkedInMinutes = Date().timeIntervalSince(clockInTime) / 60
-        worker.totalMinutesWorked += timeWorkedInMinutes
+        worker.totalMinutesWorked += Date().timeIntervalSince(clockInTime) / 60
         worker.clockInTime = nil
         workers[id] = worker
         recalcTotalPeopleWorking()
         saveState()
-        pushStateToCloud(force: true) // Force update on scan
+        pushStateToCloud(force: true)
     }
     
     private func recalcTotalPeopleWorking() {
@@ -676,59 +551,40 @@ class WorkerViewModel: ObservableObject {
         hasUsedLunchBreak = false
         lunchBreakStartTime = nil
         hasPlayedBuzzerAtZero = false
-        
         showManualSetup = false
-        
         projectName = ""
         companyName = ""
         lineLeaderName = ""
         category = ""
         projectSize = ""
-        
         pauseCount = 0
         lunchCount = 0
         scanCount = 0
-        
         scanHistory = []
         projectEvents = []
         originalCountdownSeconds = 0
-        
+        isBonusEligible = true
+        bonusIneligibleReason = ""
         saveState()
-        pushStateToCloud(force: true) // Force reset
+        pushStateToCloud(force: true)
     }
     
-    
-    // QUEUE
     func saveJobToQueue() {
         guard !projectName.isEmpty, !companyName.isEmpty else { return }
         
-        // --- FIX 1: AUTO CLOCK OUT EVERYONE ---
         let now = Date()
-        
-        // 1. Loop through all active workers
         for id in workers.keys {
             if workers[id]?.clockInTime != nil {
-                // A. Calculate their time so far
                 if let clockInTime = workers[id]?.clockInTime {
-                    let timeWorkedInMinutes = now.timeIntervalSince(clockInTime) / 60
-                    workers[id]?.totalMinutesWorked += timeWorkedInMinutes
-                    workers[id]?.clockInTime = nil // clear local clock in
+                    workers[id]?.totalMinutesWorked += now.timeIntervalSince(clockInTime) / 60
+                    workers[id]?.clockInTime = nil
                 }
-                
-                // B. Add a "System Clock Out" event to the log
-                // We use the same ID so the history looks clean
-                let event = ScanEvent(cardID: id, timestamp: now, action: .clockOut)
-                scanHistory.append(event)
+                scanHistory.append(ScanEvent(cardID: id, timestamp: now, action: .clockOut))
                 scanCount += 1
             }
         }
-        
-        // 2. Update the "People Working" counter to 0
         totalPeopleWorking = 0
-        // --------------------------------------
-        
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .save))
-        
         
         let item = ProjectQueueItem(
                 company: companyName,
@@ -740,28 +596,25 @@ class WorkerViewModel: ObservableObject {
                 lineLeaderName: lineLeaderName,
                 createdAt: Date(),
                 scanHistory: scanHistory,
-                projectEvents: projectEvents // <--- This now includes the .save event
+                projectEvents: projectEvents,
+                isBonusEligible: isBonusEligible,
+                bonusIneligibleReason: bonusIneligibleReason
             )
         
         do {
-                try db.collection("project_queue").addDocument(from: item)
-                // resetData() // (Keep your existing reset logic)
-                resetData()
-            } catch {
-                print("Error saving to queue: \(error)")
-            }
+            try db.collection("project_queue").addDocument(from: item)
+            resetData()
+        } catch {
+            print("Error saving to queue: \(error)")
+        }
     }
     
-    // --- Persistence and Settings Loading (Keep your existing helpers) ---
-    // (I'm condensing these to save space, but keep your full implementation of saveState/loadState)
     public func saveState() {
         let storage = AppStateStorageManager.shared
-
         storage.save(workers, forKey: "savedWorkers")
         storage.save(scanHistory, forKey: "scanHistory")
         storage.save(projectEvents, forKey: "projectEvents")
         storage.save(pauseState, forKey: "pauseState")
-
         storage.save(originalCountdownSeconds, forKey: "originalCountdownSeconds")
         storage.save(countdownSeconds, forKey: "countdownSeconds")
         storage.save(isPaused, forKey: "isPaused")
@@ -770,177 +623,113 @@ class WorkerViewModel: ObservableObject {
         storage.save(hasUsedLunchBreak, forKey: "hasUsedLunchBreak")
         storage.save((lunchBreakStartTime ?? Date()) as Date, forKey: "lunchBreakStartTime")
         storage.save(hasPlayedBuzzerAtZero, forKey: "hasPlayedBuzzerAtZero")
-
         storage.save(projectName, forKey: "projectName")
         storage.save(companyName, forKey: "companyName")
         storage.save(lineLeaderName, forKey: "lineLeaderName")
         storage.save(category, forKey: "category")
         storage.save(projectSize, forKey: "projectSize")
-
         storage.save(pauseCount, forKey: "pauseCount")
         storage.save(lunchCount, forKey: "lunchCount")
         storage.save(scanCount, forKey: "scanCount")
+        storage.save(isBonusEligible, forKey: "isBonusEligible")
+        storage.save(bonusIneligibleReason, forKey: "bonusIneligibleReason")
     }
 
-    
     private func loadState() {
         let storage = AppStateStorageManager.shared
-
         workers = storage.load([String: Worker].self, forKey: "savedWorkers") ?? [:]
         scanHistory = storage.load([ScanEvent].self, forKey: "scanHistory") ?? []
         projectEvents = storage.load([ProjectEvent].self, forKey: "projectEvents") ?? []
-
         pauseState = storage.load(PauseType.self, forKey: "pauseState") ?? .running
-
         originalCountdownSeconds = storage.loadInt(forKey: "originalCountdownSeconds")
         countdownSeconds = storage.loadInt(forKey: "countdownSeconds")
-
         isPaused = storage.loadBool(forKey: "isPaused")
         isCountingDown = storage.loadBool(forKey: "isCountingDown")
         isProjectFinished = storage.loadBool(forKey: "isProjectFinished")
-
         hasUsedLunchBreak = storage.loadBool(forKey: "hasUsedLunchBreak")
         lunchBreakStartTime = storage.loadDate(forKey: "lunchBreakStartTime")
         hasPlayedBuzzerAtZero = storage.loadBool(forKey: "hasPlayedBuzzerAtZero")
-
         projectName = storage.loadString(forKey: "projectName")
         companyName = storage.loadString(forKey: "companyName")
         lineLeaderName = storage.loadString(forKey: "lineLeaderName")
         category = storage.loadString(forKey: "category")
         projectSize = storage.loadString(forKey: "projectSize")
-
         pauseCount = storage.loadInt(forKey: "pauseCount")
         lunchCount = storage.loadInt(forKey: "lunchCount")
         scanCount = storage.loadInt(forKey: "scanCount")
-
+        isBonusEligible = storage.loadBool(forKey: "isBonusEligible")
+        bonusIneligibleReason = storage.loadString(forKey: "bonusIneligibleReason")
         recalcTotalPeopleWorking()
-
         if isCountingDown || isProjectFinished {
             startTimer()
             updateCountdownTime()
         }
     }
-
-    func fetchWorkerNames() {
-        // Use FirebaseManager helper instead of raw Firestore
-        FirebaseManager.shared.listenToWorkers { [weak self] workersDict in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                // Update workerNameCache safely
-                self.workerNameCache = workersDict
-            }
-        }
-    }
-
-    func fetchProjectQueue() {
-        FirebaseManager.shared.listenToProjectQueue { [weak self] items in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                self.projectQueue = items
-            }
-        }
-    }
-
-    func fetchDropdownOptions() {
-        FirebaseManager.shared.listenToProjectOptions { [weak self] categories, sizes in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                self.availableCategories = categories
-                self.availableSizes = sizes
-            }
-        }
-    }
-
+    
+    // --- (Keeping existing fetch methods) ---
+    func fetchWorkerNames() { FirebaseManager.shared.listenToWorkers { [weak self] in self?.workerNameCache = $0 } }
+    func fetchProjectQueue() { FirebaseManager.shared.listenToProjectQueue { [weak self] in self?.projectQueue = $0 } }
+    func fetchDropdownOptions() { FirebaseManager.shared.listenToProjectOptions { [weak self] c, s in self?.availableCategories = c; self?.availableSizes = s } }
+    
     func connectToFleet() {
         guard !fleetIpadID.isEmpty else { return }
-        
         FirebaseManager.shared.connectToFleet(fleetId: fleetIpadID) { [weak self] data in
             guard let self else { return }
             DispatchQueue.main.async {
-                
-                // 1. Auto-Restore
                 self.restoreFromCloud(data: data)
                 
-                // 2. Sync Basic Settings
-                if let val = data["companyName"] as? String { self.companyName = val }
-                if let val = data["projectName"] as? String { self.projectName = val }
+                // --- CRITICAL FIX START: Only update local if cloud is NOT empty ---
+                // This prevents the iPad from being wiped by stale cloud data while waiting for a push
+                if let val = data["companyName"] as? String, !val.isEmpty { self.companyName = val }
+                if let val = data["projectName"] as? String, !val.isEmpty { self.projectName = val }
                 if let val = data["category"] as? String { self.category = val }
                 if let val = data["projectSize"] as? String { self.projectSize = val }
-                if let val = data["lineLeaderName"] as? String { self.lineLeaderName = val }
+                if let val = data["lineLeaderName"] as? String, !val.isEmpty { self.lineLeaderName = val }
+                // --- CRITICAL FIX END ---
                 
-                // 3. RESTORE LOGS
+                // --- SYNC BONUS FLAGS ---
+                if let val = data["isBonusEligible"] as? Bool { if self.isBonusEligible != val { self.isBonusEligible = val } }
+                if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
+                // -----------------------
+
                 var logsUpdated = false
-                
                 if let histArray = data["scanHistory"] as? [[String: Any]] {
                     var loadedHistory: [ScanEvent] = []
                     for dict in histArray {
-                        if let cardID = dict["cardID"] as? String,
-                           let rawAction = dict["action"] as? String,
-                           let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(),
-                           let action = ScanAction(rawValue: rawAction) {
+                        if let cardID = dict["cardID"] as? String, let rawAction = dict["action"] as? String, let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(), let action = ScanAction(rawValue: rawAction) {
                             loadedHistory.append(ScanEvent(cardID: cardID, timestamp: stamp, action: action))
                         }
                     }
-                    if self.scanHistory.isEmpty && !loadedHistory.isEmpty {
-                        self.scanHistory = loadedHistory
-                        self.scanCount = loadedHistory.count
-                        logsUpdated = true
-                    }
+                    if self.scanHistory.isEmpty && !loadedHistory.isEmpty { self.scanHistory = loadedHistory; self.scanCount = loadedHistory.count; logsUpdated = true }
                 }
                 
                 if let eventArray = data["projectEvents"] as? [[String: Any]] {
                     var loadedEvents: [ProjectEvent] = []
                     for dict in eventArray {
-                        if let rawType = dict["type"] as? String,
-                           let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(),
-                           let type = ProjectEventType(rawValue: rawType) {
+                        if let rawType = dict["type"] as? String, let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(), let type = ProjectEventType(rawValue: rawType) {
                             loadedEvents.append(ProjectEvent(timestamp: stamp, type: type))
                         }
                     }
-                    if self.projectEvents.isEmpty && !loadedEvents.isEmpty {
-                        self.projectEvents = loadedEvents
-                        self.pauseCount = loadedEvents.filter { $0.type == .pause }.count
-                        self.lunchCount = loadedEvents.filter { $0.type == .lunch }.count
-                    }
+                    if self.projectEvents.isEmpty && !loadedEvents.isEmpty { self.projectEvents = loadedEvents; self.pauseCount = loadedEvents.filter { $0.type == .pause }.count; self.lunchCount = loadedEvents.filter { $0.type == .lunch }.count }
                 }
                 
-                // --- NEW: RECALCULATE HOURS ---
-                // If we just loaded fresh logs from the cloud, rebuild the worker stats
-                if logsUpdated {
-                    self.reconstructStateFromLogs()
-                }
-                // ------------------------------
+                if logsUpdated { self.reconstructStateFromLogs() }
                 
-                // 4. Handle Commands
-                if let cmd = data["remoteCommand"] as? String,
-                   let stamp = (data["commandTimestamp"] as? Timestamp)?.dateValue() {
-                    
-                    if self.lastCommandTimestamp == nil {
-                        if abs(Date().timeIntervalSince(stamp)) < 60 {
-                            self.lastCommandTimestamp = stamp
-                            self.handleRemoteCommand(cmd)
-                        } else {
-                            self.lastCommandTimestamp = stamp
-                        }
-                    } else if stamp > self.lastCommandTimestamp! {
+                if let cmd = data["remoteCommand"] as? String, let stamp = (data["commandTimestamp"] as? Timestamp)?.dateValue() {
+                    if self.lastCommandTimestamp == nil || stamp > self.lastCommandTimestamp! {
                         self.lastCommandTimestamp = stamp
                         self.handleRemoteCommand(cmd)
                     }
                 }
                 
-                // 5. Sync Original Time
                 if let trueOriginal = data["originalSeconds"] as? Int, trueOriginal > 0 {
-                    // Only accept cloud time if we are NOT currently running a job
-                    // This protects us if the cloud is stale/wrong while we are working.
-                    if self.countdownSeconds == 0 {
-                        if self.originalCountdownSeconds != trueOriginal {
-                            self.originalCountdownSeconds = trueOriginal
-                        }
+                    if self.countdownSeconds == 0 && self.originalCountdownSeconds != trueOriginal {
+                        self.originalCountdownSeconds = trueOriginal
                     }
-                }                }
+                }
+            }
         }
     }
-
     
     func saveCustomAppSettings() {
         if let e = try? JSONEncoder().encode(lunchPeriods) { UserDefaults.standard.set(e, forKey: "lunchPeriods") }
@@ -951,74 +740,59 @@ class WorkerViewModel: ObservableObject {
     
     private func loadCustomAppSettings() {
         let storage = AppStateStorageManager.shared
-        lunchPeriods = storage.load([TimePeriod].self, forKey: "lunchPeriods")
-            ?? [
-                TimePeriod(start: dateFrom(11, 30), end: dateFrom(12, 0)),
-                TimePeriod(start: dateFrom(18, 30), end: dateFrom(19, 0)),
-                TimePeriod(start: dateFrom(3, 0),  end: dateFrom(3, 30))
-            ]
-        shiftStartTimes = storage.load([ShiftTime].self, forKey: "shiftStartTimes")
-            ?? [ ShiftTime(time: dateFrom(6, 0)), ShiftTime(time: dateFrom(14, 0)), ShiftTime(time: dateFrom(22, 0)) ]
-        categories = storage.load([EditableStringItem].self, forKey: "categories")
-            ?? ["Fragrance", "Skin Care", "Kitting", "VOC"].map { EditableStringItem(value: $0) }
-        projectSizes = storage.load([EditableStringItem].self, forKey: "projectSizes")
-            ?? ["100ML", "50ML", "30ML", "15ML", "10ML", "7.5ML", "1.75ML", "4oz", "8oz", "other"].map { EditableStringItem(value: $0) }
+        lunchPeriods = storage.load([TimePeriod].self, forKey: "lunchPeriods") ?? [TimePeriod(start: dateFrom(11, 30), end: dateFrom(12, 0)), TimePeriod(start: dateFrom(18, 30), end: dateFrom(19, 0)), TimePeriod(start: dateFrom(3, 0),  end: dateFrom(3, 30))]
+        shiftStartTimes = storage.load([ShiftTime].self, forKey: "shiftStartTimes") ?? [ShiftTime(time: dateFrom(6, 0)), ShiftTime(time: dateFrom(14, 0)), ShiftTime(time: dateFrom(22, 0))]
+        categories = storage.load([EditableStringItem].self, forKey: "categories") ?? ["Fragrance", "Skin Care", "Kitting", "VOC"].map { EditableStringItem(value: $0) }
+        projectSizes = storage.load([EditableStringItem].self, forKey: "projectSizes") ?? ["100ML", "50ML", "30ML", "15ML", "10ML", "7.5ML", "1.75ML", "4oz", "8oz", "other"].map { EditableStringItem(value: $0) }
     }
-    
     func dateFrom(_ h:Int, _ m:Int) -> Date { Calendar.current.date(from: DateComponents(hour:h, minute:m)) ?? Date() }
-    
-    func getWorkerName(id: String) -> String {
-        return workerNameCache[id] ?? "ID: \(id)"
-    }
+    func getWorkerName(id: String) -> String { return workerNameCache[id] ?? "ID: \(id)" }
     
     // --- UPDATED PUSH LOGIC ---
-        func pushStateToCloud(force: Bool = false) {
-            guard !fleetIpadID.isEmpty else { return }
-            
-            let now = Date()
-            
-            // If not forced, check if enough time has passed (e.g. 5 seconds)
-            if !force {
-                let elapsed = now.timeIntervalSince(lastCloudPushTime)
-                if elapsed < cloudPushInterval {
-                    return // SKIP push to prevent flooding/jitter
-                }
-            }
-            
-            lastCloudPushTime = now
-
-            let activeWorkerIDs = workers.values
-                .filter { $0.clockInTime != nil }
-                .map { $0.id }
-
-            let payload: [String: Any] = [
-                "isPaused": isPaused,
-                "secondsRemaining": countdownSeconds,
-                // --- CRITICAL FIX: Send Timestamp for Dashboard Animation ---
-                "lastUpdateTime": FieldValue.serverTimestamp(),
-                // -----------------------------------------------------------
-                "activeWorkers": activeWorkerIDs,
-                "timerText": timerText,
-                "workerCount": totalPeopleWorking,
-                "companyName": companyName,
-                "projectName": projectName,
-                "lineLeaderName": lineLeaderName,
-                "category": category,
-                "projectSize": projectSize,
-                "scanHistory": scanHistory.map {
-                    ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp]
-                },
-                "projectEvents": projectEvents.map {
-                    ["type": $0.type.rawValue, "timestamp": $0.timestamp]
-                }
-            ]
-
-            FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: payload)
+    func pushStateToCloud(force: Bool = false) {
+        guard !fleetIpadID.isEmpty else { return }
+        
+        let now = Date()
+        if !force {
+            if now.timeIntervalSince(lastCloudPushTime) < cloudPushInterval { return }
         }
+        lastCloudPushTime = now
+
+        let activeWorkerIDs = workers.values.filter { $0.clockInTime != nil }.map { $0.id }
+
+        var payload: [String: Any] = [
+            "isPaused": isPaused,
+            "secondsRemaining": countdownSeconds,
+            "lastUpdateTime": FieldValue.serverTimestamp(),
+            "activeWorkers": activeWorkerIDs,
+            "timerText": timerText,
+            "workerCount": totalPeopleWorking,
+            "companyName": companyName,
+            "projectName": projectName,
+            "lineLeaderName": lineLeaderName,
+            "category": category,
+            "projectSize": projectSize,
+            "isBonusEligible": isBonusEligible,
+            "bonusIneligibleReason": bonusIneligibleReason,
+            "scanHistory": scanHistory.map { ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp] },
+            "projectEvents": projectEvents.map { ["type": $0.type.rawValue, "timestamp": $0.timestamp] }
+        ]
+        
+        // --- CRITICAL FIX: Prevent overwriting Cloud with local empty strings ---
+        // If we have a project loaded (originalCountdownSeconds > 0), never send blank names.
+        // This protects the data even if the timer is paused or just starting.
+        if originalCountdownSeconds > 0 {
+            if companyName.isEmpty { payload.removeValue(forKey: "companyName") }
+            if projectName.isEmpty { payload.removeValue(forKey: "projectName") }
+            if lineLeaderName.isEmpty { payload.removeValue(forKey: "lineLeaderName") }
+        }
+        // -----------------------------------------------------------------------
+        
+        FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: payload)
+    }
+    
     func saveFinalReportToFirestore() {
-        let workerLog = workers.values.map {
-            ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked]
-        }
+        let workerLog = workers.values.map { ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked] }
 
         let report: [String: Any] = [
             "company": companyName,
@@ -1028,9 +802,9 @@ class WorkerViewModel: ObservableObject {
             "size": projectSize,
             "workerLog": workerLog,
             "completedAt": FieldValue.serverTimestamp(),
-            "bonusStatus": "unpaid"
+            "bonusEligible": isBonusEligible,
+            "bonusIneligibleReason": isBonusEligible ? "" : (bonusIneligibleReason.isEmpty ? "One or More employees did not properly clock in" : bonusIneligibleReason)
         ]
-
         FirebaseManager.shared.saveFinalReport(report)
     }
 }

@@ -2,7 +2,6 @@
 //  SettingsSelectionView.swift
 //  RFID Time Tracking
 //
-//
 
 import SwiftUI
 
@@ -17,8 +16,6 @@ struct SettingsSelectionView: View {
     var body: some View {
         NavigationView {
             Form {
-                // --- REMOVED: Manual Setup Section (Moved to Main Screen) ---
-                
                 NavigationLink("App Settings", destination: AppSettingsView(
                     showingSettingsKeyboard: $showingSettingsKeyboard,
                     settingsKeyboardBinding: $settingsKeyboardBinding,
@@ -27,6 +24,10 @@ struct SettingsSelectionView: View {
                 ))
                 NavigationLink("Email Settings", destination: EmailSettingsView())
                 NavigationLink("Manual Clock Out", destination: ManualClockOutView())
+                
+                // --- NEW LINK ADDED HERE ---
+                NavigationLink("Edit Worker Hours", destination: EditHoursView())
+                // ---------------------------
             }
             .navigationTitle("Settings")
             .navigationBarItems(trailing: Button("Done") {

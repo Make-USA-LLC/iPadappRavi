@@ -14,7 +14,11 @@ final class FirebaseManager {
     static let shared = FirebaseManager()
 
     private let db = Firestore.firestore()
+    
+    // --- FIX: Add a variable to hold the queue listener ---
     private var fleetListener: ListenerRegistration?
+    private var queueListener: ListenerRegistration?
+    // -----------------------------------------------------
 
     private init() {}
 
@@ -42,7 +46,11 @@ final class FirebaseManager {
 
     // MARK: - PROJECT QUEUE
     func listenToProjectQueue(onUpdate: @escaping ([ProjectQueueItem]) -> Void) {
-        db.collection("project_queue")
+        // --- FIX: Remove existing listener before adding a new one ---
+        queueListener?.remove()
+        // ------------------------------------------------------------
+
+        queueListener = db.collection("project_queue")
             .order(by: "createdAt", descending: false)
             .addSnapshotListener { snap, _ in
                 let items = snap?.documents.compactMap {
@@ -100,5 +108,8 @@ final class FirebaseManager {
     func disconnectFleet() {
         fleetListener?.remove()
         fleetListener = nil
+        
+        queueListener?.remove()
+        queueListener = nil
     }
 }
