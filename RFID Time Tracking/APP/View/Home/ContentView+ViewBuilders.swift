@@ -49,25 +49,10 @@ extension ContentView {
             } else {
                 Text("No Jobs in Queue").foregroundColor(.gray).font(.caption)
             }
-            // -------------------------
-            
-            /* // Big Status Text
-             Text("WAITING FOR COMMAND")
-             .font(.system(size: 40, weight: .black))
-             .foregroundColor(.yellow)
-             .multilineTextAlignment(.center)
-             .shadow(radius: 5)
-             
-             // Current Timer Value (Synced from Cloud)
-             Text(viewModel.timerText)
-             .font(.system(size: 60, weight: .bold, design: .monospaced))
-             .foregroundColor(.white.opacity(0.5))
-             */
         }
     }
-    // MARK: - NEW: Project Info Screen (Screen 1)
     
-    // The view used to collect company/project metadata before starting a timer.
+    // MARK: - NEW: Project Info Screen (Screen 1)
     @ViewBuilder
      func projectInfoScreen(geometry: GeometryProxy) -> some View {
         let g = geometry.size
@@ -99,11 +84,6 @@ extension ContentView {
                     Text("Line Leader").font(.caption).foregroundColor(.gray)
                 }
                 TextField("Line Leader (Scan Card)", text: $lineLeaderNameInput)
-                /*  .task {
-                 // A slight pause to let the UI settle
-                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-                 isInputFocused = true
-                 }*/
                     .focused($isInputFocused)
                     .font(.system(size: 20))
                     .padding(10)
@@ -118,7 +98,6 @@ extension ContentView {
                         }
                     }
             }
-            // ------------------------------
             
             // --- 3. DYNAMIC CATEGORY DROPDOWN ---
             HStack {
@@ -133,7 +112,6 @@ extension ContentView {
                     }
                 }
                 .pickerStyle(.menu)
-                // Scale effect to make the picker text larger if needed
                 .scaleEffect(1.2)
             }
             .padding(isLandscape ? 8 : 12)
@@ -195,8 +173,6 @@ extension ContentView {
     }
     
     // MARK: - MODIFIED: Timer Input Screen (Screen 2)
-    // Numeric keypad for entering hours/minutes/seconds. Uses custom
-    // logic for handling input lengths (hours can be multi-digit).
     @ViewBuilder
      func timerInputScreen(geometry: GeometryProxy) -> some View {
         
@@ -294,7 +270,6 @@ extension ContentView {
     // MARK: - Timer Running Screen
     // Main operational UI where the operator scans RFID cards and controls
     // the running timer (pause, lunch, reset, finish project).
-    // MARK: - UPDATED TIMER SCREEN (RESIZED & NEW SAVE BUTTON)
     @ViewBuilder
      func timerRunningScreen() -> some View {
         GeometryReader { geometry in
@@ -324,8 +299,40 @@ extension ContentView {
                         .foregroundColor(.black).padding(.bottom, 2).lineLimit(1).minimumScaleFactor(0.5).frame(height: subHeaderFontSize).frame(maxWidth: .infinity).multilineTextAlignment(.center)
                 }
                 
-                Text("People Clocked In: \(viewModel.totalPeopleWorking)").font(.system(size: headerFontSize, weight: .medium))
-                    .foregroundColor(.black).padding(.bottom, 10).frame(height: headerFontSize).frame(maxWidth: .infinity).multilineTextAlignment(.center)
+                // --- MODIFIED: ADD "Who's In" Button Next to Counter ---
+                HStack(spacing: 15) {
+                    Text("People Clocked In: \(viewModel.totalPeopleWorking)")
+                        .font(.system(size: headerFontSize, weight: .medium))
+                        .foregroundColor(.black)
+                    
+                    // The button that triggers the sheet
+                                        Button(action: {
+                                            // 1. Close the keyboard (stop editing)
+                                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                            
+                                            // 2. Clear focus state specifically
+                                            isRFIDFieldFocused = false
+                                            
+                                            // 3. Wait 0.1s for keyboard to slide down, THEN open sheet
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                                showingWhosInSheet = true
+                                            }
+                                        }) {
+                                            HStack(spacing: 5) {
+                                                Image(systemName: "list.bullet.rectangle.portrait")
+                                                Text("Who?")
+                                            }
+                                            .font(.system(size: headerFontSize * 0.5, weight: .bold))
+                                            .padding(.vertical, 8)
+                                            .padding(.horizontal, 12)
+                                            .background(Color.blue.opacity(0.1))
+                                            .foregroundColor(.blue)
+                                            .cornerRadius(8)
+                                        }
+                }
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+                // --------------------------------------------------------
                 
                 // REDUCED BUTTON SIZES
                 let buttonWidth = min(geometry.size.width * 0.28, 220.0)
@@ -395,8 +402,6 @@ extension ContentView {
         }
     }
     
-    // Small time input view used on the numeric timer screen. It shows
-    // the typed value and a blinking cursor when the field is active.
     @ViewBuilder
      func timeInputBox(title: String, text: Binding<String>, selected: Bool, width: CGFloat, height: CGFloat, fontSize: CGFloat) -> some View {
         VStack {
@@ -432,8 +437,6 @@ extension ContentView {
                 .font(.system(size: height * 0.4, weight: .semibold))
         }
     }
-    
-
     
     @ViewBuilder
      func keypadButton(_ label: String, color: Color = .gray, size: CGFloat, fontSize: CGFloat, action: @escaping () -> Void) -> some View {

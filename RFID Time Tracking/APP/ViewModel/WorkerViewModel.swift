@@ -22,6 +22,10 @@ class WorkerViewModel: ObservableObject {
     private var listener: ListenerRegistration?
     private var lastCommandTimestamp: Date?
     
+    // --- NEW: Cloud Sync Throttle ---
+    private var lastCloudPushTime: Date = Date.distantPast
+    private let cloudPushInterval: TimeInterval = 5.0 // Sync every 5 seconds to prevent jitter
+    
     @Published var triggerQueueItem: ProjectQueueItem? = nil
     
     @AppStorage(AppStorageKeys.fleetIpadID) var fleetIpadID: String = "" {
@@ -114,45 +118,45 @@ class WorkerViewModel: ObservableObject {
     
     
     // --- NEW: Replay history to calculate total hours ---
-        func reconstructStateFromLogs() {
-            print("🔄 Reconstructing worker hours from history logs...")
+    func reconstructStateFromLogs() {
+        print("🔄 Reconstructing worker hours from history logs...")
+        
+        // 1. Reset Workers Dict
+        // We will rebuild it entirely from the logs to ensure accuracy
+        var rebuiltWorkers: [String: Worker] = [:]
+        
+        // 2. Sort history to ensure we replay in chronological order
+        let sortedHistory = scanHistory.sorted { $0.timestamp < $1.timestamp }
+        
+        for event in sortedHistory {
+            let id = event.cardID
             
-            // 1. Reset Workers Dict
-            // We will rebuild it entirely from the logs to ensure accuracy
-            var rebuiltWorkers: [String: Worker] = [:]
+            // Get or Create Worker
+            var worker = rebuiltWorkers[id] ?? Worker(id: id, clockInTime: nil, totalMinutesWorked: 0)
             
-            // 2. Sort history to ensure we replay in chronological order
-            let sortedHistory = scanHistory.sorted { $0.timestamp < $1.timestamp }
-            
-            for event in sortedHistory {
-                let id = event.cardID
-                
-                // Get or Create Worker
-                var worker = rebuiltWorkers[id] ?? Worker(id: id, clockInTime: nil, totalMinutesWorked: 0)
-                
-                if event.action == .clockIn {
-                    // Set Clock In Time
-                    worker.clockInTime = event.timestamp
-                } else if event.action == .clockOut {
-                    // Calculate duration if they were clocked in
-                    if let start = worker.clockInTime {
-                        let minutes = event.timestamp.timeIntervalSince(start) / 60
-                        worker.totalMinutesWorked += minutes
-                    }
-                    // Clear Clock In (they are now out)
-                    worker.clockInTime = nil
+            if event.action == .clockIn {
+                // Set Clock In Time
+                worker.clockInTime = event.timestamp
+            } else if event.action == .clockOut {
+                // Calculate duration if they were clocked in
+                if let start = worker.clockInTime {
+                    let minutes = event.timestamp.timeIntervalSince(start) / 60
+                    worker.totalMinutesWorked += minutes
                 }
-                
-                // Update Dictionary
-                rebuiltWorkers[id] = worker
+                // Clear Clock In (they are now out)
+                worker.clockInTime = nil
             }
             
-            // 3. Apply to ViewModel
-            self.workers = rebuiltWorkers
-            self.recalcTotalPeopleWorking()
-            
-            print("✅ Reconstruct Complete. Total Workers: \(workers.count). Active: \(totalPeopleWorking)")
+            // Update Dictionary
+            rebuiltWorkers[id] = worker
         }
+        
+        // 3. Apply to ViewModel
+        self.workers = rebuiltWorkers
+        self.recalcTotalPeopleWorking()
+        
+        print("✅ Reconstruct Complete. Total Workers: \(workers.count). Active: \(totalPeopleWorking)")
+    }
 
     private func clearRemoteCommand() {
         guard !fleetIpadID.isEmpty else { return }
@@ -305,8 +309,8 @@ class WorkerViewModel: ObservableObject {
     
     // 2. REPORT STATUS TO DASHBOARD
     // Redirect all heartbeat calls to the main cloud sync function
-    func sendHeartbeat() {
-        pushStateToCloud()
+    func sendHeartbeat(force: Bool = false) {
+        pushStateToCloud(force: force)
     }
     
     // 3. EXECUTE COMMANDS FROM WEB
@@ -355,7 +359,7 @@ class WorkerViewModel: ObservableObject {
         }
         
         // Update status immediately after a command
-        sendHeartbeat()
+        sendHeartbeat(force: true)
     }
     
     // Helper to bypass password for remote commands
@@ -367,8 +371,7 @@ class WorkerViewModel: ObservableObject {
             pauseCount += 1
             projectEvents.append(ProjectEvent(timestamp: Date(), type: .pause))
             saveState()
-            pushStateToCloud()
-            sendHeartbeat() // Update dashboard
+            pushStateToCloud(force: true) // Force update
             return true
         }
         return false
@@ -378,7 +381,6 @@ class WorkerViewModel: ObservableObject {
     
     
     // ... [KEEP ALL YOUR EXISTING FUNCTIONS BELOW: startTimer, updateCountdownTime, etc.] ...
-    // ... [Make sure to call self.sendHeartbeat() inside finishProject() and resetData() too!] ...
     
     private func startTimer() {
         guard !isProjectFinished else { return }
@@ -449,8 +451,7 @@ class WorkerViewModel: ObservableObject {
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .lunch))
         
         saveState()
-        pushStateToCloud()
-        sendHeartbeat() // Update dashboard
+        pushStateToCloud(force: true) // Force update
         return .success
     }
     
@@ -465,8 +466,7 @@ class WorkerViewModel: ObservableObject {
         
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .lunch))
         saveState()
-        pushStateToCloud()
-        sendHeartbeat() // Update dashboard
+        pushStateToCloud(force: true)
     }
     
     func autoClearLunchLock() {
@@ -523,8 +523,8 @@ class WorkerViewModel: ObservableObject {
         
         // 3. Sync final state to dashboard one last time
         saveState()
-        pushStateToCloud()
-        sendHeartbeat()
+        pushStateToCloud(force: true)
+        sendHeartbeat(force: true)
     }
     
     private func updateCountdownTime() {
@@ -574,6 +574,10 @@ class WorkerViewModel: ObservableObject {
         let minutes = (absoluteSeconds % 3600) / 60
         let seconds = absoluteSeconds % 60
         timerText = String(format: "%@%02d:%02d:%02d", prefix, hours, minutes, seconds)
+        
+        // --- MODIFIED: Save local state, but throttle Cloud Sync ---
+        saveState() // Save local changes
+        pushStateToCloud(force: false) // Only push if interval passed
     }
     
     func resetTimer(hours: Int, minutes: Int, seconds: Int) {
@@ -590,8 +594,7 @@ class WorkerViewModel: ObservableObject {
         
         startTimer()
         saveState()
-        pushStateToCloud()
-        sendHeartbeat() // Update
+        pushStateToCloud(force: true) // Force update on reset
     }
     
     func resumeTimer() {
@@ -602,7 +605,7 @@ class WorkerViewModel: ObservableObject {
         lunchBreakStartTime = nil
         startTimer()
         saveState()
-        sendHeartbeat() // Update
+        pushStateToCloud(force: true) // Force update on resume
     }
     
     func handleRFIDScan(for id: String) -> ScanFeedback? {
@@ -627,8 +630,6 @@ class WorkerViewModel: ObservableObject {
         }
     }
     
-    
-    
     func clockIn(for id: String) {
         var worker = workers[id] ?? Worker(id: id, clockInTime: nil, totalMinutesWorked: 0)
         if worker.clockInTime == nil {
@@ -636,8 +637,7 @@ class WorkerViewModel: ObservableObject {
             workers[id] = worker
             recalcTotalPeopleWorking()
             saveState()
-            pushStateToCloud()
-            sendHeartbeat() // Update
+            pushStateToCloud(force: true) // Force update on scan
         }
     }
     
@@ -657,8 +657,7 @@ class WorkerViewModel: ObservableObject {
         workers[id] = worker
         recalcTotalPeopleWorking()
         saveState()
-        pushStateToCloud()
-        sendHeartbeat() // Update
+        pushStateToCloud(force: true) // Force update on scan
     }
     
     private func recalcTotalPeopleWorking() {
@@ -678,9 +677,7 @@ class WorkerViewModel: ObservableObject {
         lunchBreakStartTime = nil
         hasPlayedBuzzerAtZero = false
         
-        // --- ADD THIS LINE ---
-        showManualSetup = false // <--- Exits the wizard and returns to "Waiting"
-        // ---------------------
+        showManualSetup = false
         
         projectName = ""
         companyName = ""
@@ -697,8 +694,7 @@ class WorkerViewModel: ObservableObject {
         originalCountdownSeconds = 0
         
         saveState()
-        pushStateToCloud()
-        sendHeartbeat()
+        pushStateToCloud(force: true) // Force reset
     }
     
     
@@ -825,55 +821,6 @@ class WorkerViewModel: ObservableObject {
         }
     }
 
-    
-    func saveCustomAppSettings() {
-        if let e = try? JSONEncoder().encode(lunchPeriods) { UserDefaults.standard.set(e, forKey: "lunchPeriods") }
-        if let e = try? JSONEncoder().encode(shiftStartTimes) { UserDefaults.standard.set(e, forKey: "shiftStartTimes") }
-        if let e = try? JSONEncoder().encode(categories) { UserDefaults.standard.set(e, forKey: "categories") }
-        if let e = try? JSONEncoder().encode(projectSizes) { UserDefaults.standard.set(e, forKey: "projectSizes") }
-    }
-    
-    private func loadCustomAppSettings() {
-        let storage = AppStateStorageManager.shared
-
-        lunchPeriods = storage.load([TimePeriod].self, forKey: "lunchPeriods")
-            ?? [
-                TimePeriod(start: dateFrom(11, 30), end: dateFrom(12, 0)),
-                TimePeriod(start: dateFrom(18, 30), end: dateFrom(19, 0)),
-                TimePeriod(start: dateFrom(3, 0),  end: dateFrom(3, 30))
-            ]
-
-        shiftStartTimes = storage.load([ShiftTime].self, forKey: "shiftStartTimes")
-            ?? [
-                ShiftTime(time: dateFrom(6, 0)),
-                ShiftTime(time: dateFrom(14, 0)),
-                ShiftTime(time: dateFrom(22, 0))
-            ]
-
-        categories = storage.load([EditableStringItem].self, forKey: "categories")
-            ?? ["Fragrance", "Skin Care", "Kitting", "VOC"]
-                .map { EditableStringItem(value: $0) }
-
-        projectSizes = storage.load([EditableStringItem].self, forKey: "projectSizes")
-            ?? ["100ML", "50ML", "30ML", "15ML", "10ML", "7.5ML", "1.75ML", "4oz", "8oz", "other"]
-                .map { EditableStringItem(value: $0) }
-    }
-
-    
-    func dateFrom(_ h:Int, _ m:Int) -> Date { Calendar.current.date(from: DateComponents(hour:h, minute:m)) ?? Date() }
-    
-    private func setInitialDefaultSettings() { /* Keep your existing code here */ }
-    
-    // --- Helper to get Real Name ---
-    func getWorkerName(id: String) -> String {
-        return workerNameCache[id] ?? "ID: \(id)"
-    }
-}
-
-//MARK: FIREBASE
-extension WorkerViewModel {
-    // MARK: - FIREBASE LOGIC
-
     func fetchWorkerNames() {
         // Use FirebaseManager helper instead of raw Firestore
         FirebaseManager.shared.listenToWorkers { [weak self] workersDict in
@@ -994,35 +941,80 @@ extension WorkerViewModel {
         }
     }
 
-    func pushStateToCloud() {
-        guard !fleetIpadID.isEmpty else { return }
-
-        let activeWorkerIDs = workers.values
-            .filter { $0.clockInTime != nil }
-            .map { $0.id }
-
-        let payload: [String: Any] = [
-            "isPaused": isPaused,
-            "secondsRemaining": countdownSeconds,
-            "activeWorkers": activeWorkerIDs,
-            "timerText": timerText,
-            "workerCount": totalPeopleWorking,
-            "companyName": companyName,
-            "projectName": projectName,
-            "lineLeaderName": lineLeaderName,
-            "category": category,
-            "projectSize": projectSize,
-            "scanHistory": scanHistory.map {
-                ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp]
-            },
-            "projectEvents": projectEvents.map {
-                ["type": $0.type.rawValue, "timestamp": $0.timestamp]
-            }
-        ]
-
-        FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: payload)
+    
+    func saveCustomAppSettings() {
+        if let e = try? JSONEncoder().encode(lunchPeriods) { UserDefaults.standard.set(e, forKey: "lunchPeriods") }
+        if let e = try? JSONEncoder().encode(shiftStartTimes) { UserDefaults.standard.set(e, forKey: "shiftStartTimes") }
+        if let e = try? JSONEncoder().encode(categories) { UserDefaults.standard.set(e, forKey: "categories") }
+        if let e = try? JSONEncoder().encode(projectSizes) { UserDefaults.standard.set(e, forKey: "projectSizes") }
     }
+    
+    private func loadCustomAppSettings() {
+        let storage = AppStateStorageManager.shared
+        lunchPeriods = storage.load([TimePeriod].self, forKey: "lunchPeriods")
+            ?? [
+                TimePeriod(start: dateFrom(11, 30), end: dateFrom(12, 0)),
+                TimePeriod(start: dateFrom(18, 30), end: dateFrom(19, 0)),
+                TimePeriod(start: dateFrom(3, 0),  end: dateFrom(3, 30))
+            ]
+        shiftStartTimes = storage.load([ShiftTime].self, forKey: "shiftStartTimes")
+            ?? [ ShiftTime(time: dateFrom(6, 0)), ShiftTime(time: dateFrom(14, 0)), ShiftTime(time: dateFrom(22, 0)) ]
+        categories = storage.load([EditableStringItem].self, forKey: "categories")
+            ?? ["Fragrance", "Skin Care", "Kitting", "VOC"].map { EditableStringItem(value: $0) }
+        projectSizes = storage.load([EditableStringItem].self, forKey: "projectSizes")
+            ?? ["100ML", "50ML", "30ML", "15ML", "10ML", "7.5ML", "1.75ML", "4oz", "8oz", "other"].map { EditableStringItem(value: $0) }
+    }
+    
+    func dateFrom(_ h:Int, _ m:Int) -> Date { Calendar.current.date(from: DateComponents(hour:h, minute:m)) ?? Date() }
+    
+    func getWorkerName(id: String) -> String {
+        return workerNameCache[id] ?? "ID: \(id)"
+    }
+    
+    // --- UPDATED PUSH LOGIC ---
+        func pushStateToCloud(force: Bool = false) {
+            guard !fleetIpadID.isEmpty else { return }
+            
+            let now = Date()
+            
+            // If not forced, check if enough time has passed (e.g. 5 seconds)
+            if !force {
+                let elapsed = now.timeIntervalSince(lastCloudPushTime)
+                if elapsed < cloudPushInterval {
+                    return // SKIP push to prevent flooding/jitter
+                }
+            }
+            
+            lastCloudPushTime = now
 
+            let activeWorkerIDs = workers.values
+                .filter { $0.clockInTime != nil }
+                .map { $0.id }
+
+            let payload: [String: Any] = [
+                "isPaused": isPaused,
+                "secondsRemaining": countdownSeconds,
+                // --- CRITICAL FIX: Send Timestamp for Dashboard Animation ---
+                "lastUpdateTime": FieldValue.serverTimestamp(),
+                // -----------------------------------------------------------
+                "activeWorkers": activeWorkerIDs,
+                "timerText": timerText,
+                "workerCount": totalPeopleWorking,
+                "companyName": companyName,
+                "projectName": projectName,
+                "lineLeaderName": lineLeaderName,
+                "category": category,
+                "projectSize": projectSize,
+                "scanHistory": scanHistory.map {
+                    ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp]
+                },
+                "projectEvents": projectEvents.map {
+                    ["type": $0.type.rawValue, "timestamp": $0.timestamp]
+                }
+            ]
+
+            FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: payload)
+        }
     func saveFinalReportToFirestore() {
         let workerLog = workers.values.map {
             ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked]
@@ -1041,5 +1033,4 @@ extension WorkerViewModel {
 
         FirebaseManager.shared.saveFinalReport(report)
     }
-
 }

@@ -78,6 +78,9 @@ struct ContentView: View {
     @State var showingQueueLeaderKeyboard = false
     @FocusState var isInputFocused: Bool
     
+    // --- NEW: State for "Who's In" Sheet ---
+    @State var showingWhosInSheet = false
+    
     // AppStorage-based persisted settings available directly in the view
     @AppStorage(AppStorageKeys.smtpRecipient)  var smtpRecipient = "productionreports@makeit.buzz"
     @AppStorage(AppStorageKeys.smtpHost)  var smtpHost = "smtp.office365.com"
@@ -478,6 +481,19 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled()
         }
+        // --- NEW SHEET FOR WHO'S IN ---
+        .sheet(isPresented: $showingWhosInSheet) {
+            NavigationView {
+                ActiveWorkerView()
+                    .environmentObject(viewModel)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { showingWhosInSheet = false }
+                        }
+                    }
+            }
+        }
+        // ------------------------------
         .alert(isPresented: $showingEmailAlert) {
             Alert(
                 title: Text(emailAlertTitle),
@@ -541,4 +557,3 @@ struct ContentView_Previews: PreviewProvider {
             .previewInterfaceOrientation(.landscapeLeft)
     }
 }
-
