@@ -19,6 +19,7 @@ extension ContentView {
                 .cornerRadius(8)
                 .foregroundColor(viewModel.fleetIpadID.isEmpty ? .red : .green)
             
+            // 1. PROJECT QUEUE SELECTOR
             if !viewModel.projectQueue.isEmpty {
                 Menu {
                     ForEach(viewModel.projectQueue) { job in
@@ -37,6 +38,7 @@ extension ContentView {
                     }
                     .font(.title2)
                     .padding()
+                    .frame(minWidth: 300) // Ensure consistent width
                     .background(Color.blue)
                     .foregroundColor(.white)
                     .cornerRadius(12)
@@ -44,8 +46,39 @@ extension ContentView {
                 }
                 .padding(.horizontal, 40)
             } else {
-                Text("No Jobs in Queue").foregroundColor(.gray).font(.caption)
+                Text("No Jobs in Queue")
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.gray.opacity(0.5))
+                    .cornerRadius(8)
             }
+            
+            // 2. --- NEW: MANUAL SETUP BUTTON ---
+            Button(action: {
+                // Clear old data to prevent carry-over
+                viewModel.companyName = ""
+                viewModel.projectName = ""
+                viewModel.lineLeaderName = ""
+                
+                // Trigger the view change
+                withAnimation {
+                    viewModel.showManualSetup = true
+                }
+            }) {
+                HStack {
+                    Image(systemName: "square.and.pencil")
+                    Text("Manual Project Setup")
+                }
+                .font(.title2)
+                .padding()
+                .frame(minWidth: 300) // Match width of menu above
+                .background(Color.orange) // Distinct color
+                .foregroundColor(.white)
+                .cornerRadius(12)
+                .shadow(radius: 5)
+            }
+            .padding(.horizontal, 40)
+            // -----------------------------------
         }
     }
     
@@ -61,15 +94,21 @@ extension ContentView {
         let vSpacing = g.height * (isLandscape ? 0.02 : 0.04)
         
         VStack(spacing: vSpacing) {
+            // --- 2. STANDARD INPUTS ---
             
             inputButtonViewBuilder(text: companyNameInput.isEmpty ? "Company Name" : companyNameInput, width: fieldWidth, height: fieldMinHeight, fontSize: fieldFontSize, isEmpty: companyNameInput.isEmpty) {
-                withAnimation { showingCompanyKeyboard = true }
+                withAnimation {
+                    showingCompanyKeyboard = true
+                }
             }
             
             inputButtonViewBuilder(text: projectNameInput.isEmpty ? "Project Name" : projectNameInput, width: fieldWidth, height: fieldMinHeight, fontSize: fieldFontSize, isEmpty: projectNameInput.isEmpty) {
-                withAnimation { showingProjectKeyboard = true }
+                withAnimation {
+                    showingProjectKeyboard = true
+                }
             }
             
+            // --- LINE LEADER SCAN INPUT ---
             VStack(alignment: .leading, spacing: 2) {
                 if !lineLeaderNameInput.isEmpty {
                     Text("Line Leader").font(.caption).foregroundColor(.gray)
@@ -90,6 +129,7 @@ extension ContentView {
                     }
             }
             
+            // --- 3. DYNAMIC CATEGORY DROPDOWN ---
             HStack {
                 Text("Category:")
                     .font(.system(size: fieldFontSize * 0.8))
@@ -111,6 +151,7 @@ extension ContentView {
             .cornerRadius(10)
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.gray.opacity(0.5), lineWidth: 1))
             
+            // --- 4. DYNAMIC SIZE DROPDOWN ---
             HStack {
                 Text("Size:")
                     .font(.system(size: fieldFontSize * 0.8))
@@ -161,7 +202,7 @@ extension ContentView {
         }
     }
     
-    // MARK: - Timer Input Screen
+    // MARK: - MODIFIED: Timer Input Screen (Screen 2)
     @ViewBuilder
      func timerInputScreen(geometry: GeometryProxy) -> some View {
         
@@ -255,10 +296,14 @@ extension ContentView {
         .edgesIgnoringSafeArea(.all)
     }
     
+    
     // MARK: - Timer Running Screen
+    // Main operational UI where the operator scans RFID cards and controls
+    // the running timer (pause, lunch, reset, finish project).
     @ViewBuilder
      func timerRunningScreen() -> some View {
         GeometryReader { geometry in
+            // SCALED DOWN SIZES (approx 20% smaller than before)
             let timerFontSize = min(geometry.size.width * 0.18, 200)
             let headerFontSize = min(geometry.size.width * 0.05, 40)
             let subHeaderFontSize = min(geometry.size.width * 0.04, 30)
@@ -284,22 +329,28 @@ extension ContentView {
                         .foregroundColor(.black).padding(.bottom, 2).lineLimit(1).minimumScaleFactor(0.5).frame(height: subHeaderFontSize).frame(maxWidth: .infinity).multilineTextAlignment(.center)
                 }
                 
-                // --- WHO'S IN BUTTON ---
+                // --- MODIFIED: ADD "Who's In" Button Next to Counter ---
                 HStack(spacing: 15) {
                     Text("People Clocked In: \(viewModel.totalPeopleWorking)")
                         .font(.system(size: headerFontSize, weight: .medium))
                         .foregroundColor(.black)
                     
+                    // The button that triggers the sheet
                     Button(action: {
+                        // 1. Force Keyboard to Close immediately
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        
+                        // 2. Clear focus state variables
                         isRFIDFieldFocused = false
+                        
+                        // 3. Wait a tiny bit for keyboard animation, then show sheet
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             showingWhosInSheet = true
                         }
                     }) {
                         HStack(spacing: 5) {
                             Image(systemName: "list.bullet.rectangle.portrait")
-                            Text("Who?")
+                            Text("Who's In?")
                         }
                         .font(.system(size: headerFontSize * 0.5, weight: .bold))
                         .padding(.vertical, 8)
@@ -311,14 +362,17 @@ extension ContentView {
                 }
                 .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
-                // ---------------------
+                // --------------------------------------------------------
                 
+                // REDUCED BUTTON SIZES
                 let buttonWidth = min(geometry.size.width * 0.28, 220.0)
                 let buttonHeight = min(geometry.size.height * 0.10, 80.0)
                 let buttonFont = Font.system(size: min(buttonWidth * 0.12, 22), weight: .semibold)
                 
+                // --- SPLIT INTO 2 ROWS FOR BETTER FIT ---
                 VStack(spacing: 15) {
                     
+                    // ROW 1: PAUSE, LUNCH, SAVE
                     HStack(spacing: 20) {
                         Button(action: { if viewModel.isPaused { viewModel.resumeTimer() } else { showingPasswordSheet = true } }) {
                             Text(viewModel.isPaused ? "Unpause" : "Pause")
@@ -338,6 +392,7 @@ extension ContentView {
                         .disabled(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0)
                         .opacity(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0 ? 0.5 : 1.0)
                         
+                        // --- NEW SAVE BUTTON ---
                         Button(action: { viewModel.saveJobToQueue() }) {
                             Text("Save").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
                                 .background(Color.purple).foregroundColor(.white).cornerRadius(14)
@@ -345,14 +400,16 @@ extension ContentView {
                         .disabled(viewModel.isProjectFinished).opacity(viewModel.isProjectFinished ? 0.5 : 1.0)
                     }
                     
+                    // ROW 2: RESET, FINISH
                     HStack(spacing: 20) {
                         Button(action: { showingResetPasswordSheet = true }) {
                             Text("Reset").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
                                 .background(Color.red).foregroundColor(.white).cornerRadius(14)
                         }
                         
-                        // --- FINISH BUTTON WITH ATTACHED ALERT ---
                         Button(action: {
+                            // OLD: sendEmailAndFinishProject()
+                            // NEW:
                             showingFinishConfirmation = true
                         }) {
                             Text("Finish").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
@@ -363,18 +420,18 @@ extension ContentView {
                         .alert(isPresented: $showingFinishConfirmation) {
                             Alert(
                                 title: Text("Finish Project?"),
-                                message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers and remove project from iPad."),
+                                message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers."),
                                 primaryButton: .destructive(Text("Finish")) {
                                     sendEmailAndFinishProject()
                                 },
                                 secondaryButton: .cancel()
                             )
                         }
-                        // -----------------------------------------
                     }
                 }
                 .padding(.bottom, 20)
                 
+                // RFID Input Field
                 VStack(spacing: 10) {
                     TextField("Scan RFID Card", text: $rfidInput)
                         .font(.system(size: min(geometry.size.width * 0.04, 28)))
@@ -394,29 +451,47 @@ extension ContentView {
      func timeInputBox(title: String, text: Binding<String>, selected: Bool, width: CGFloat, height: CGFloat, fontSize: CGFloat) -> some View {
         VStack {
             ZStack {
-                RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.9)).frame(width: width, height: height).shadow(radius: 4)
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: width, height: height)
+                    .shadow(radius: 4)
                 HStack(spacing: 0) {
-                    Text(text.wrappedValue).font(.system(size: fontSize, weight: .semibold))
+                    Text(text.wrappedValue)
+                        .font(.system(size: fontSize, weight: .semibold))
                     if selected && showCursor {
-                        Rectangle().fill(Color.black).frame(width: 2, height: fontSize * 1.1).padding(.leading, 2)
+                        Rectangle()
+                            .fill(Color.black)
+                            .frame(width: 2, height: fontSize * 1.1)
+                            .padding(.leading, 2)
                     }
                 }
             }
-            Text(title).font(.system(size: fontSize * 0.4))
+            Text(title)
+                .font(.system(size: fontSize * 0.4))
         }
     }
     
     @ViewBuilder
      func numButton(_ label: String, color: Color = .gray, width: CGFloat, height: CGFloat) -> some View {
         Button(action: { handleNumberPress(label) }) {
-            Text(label).frame(width: width, height: height).background(color.opacity(0.8)).foregroundColor(.white).cornerRadius(14).font(.system(size: height * 0.4, weight: .semibold))
+            Text(label)
+                .frame(width: width, height: height)
+                .background(color.opacity(0.8))
+                .foregroundColor(.white)
+                .cornerRadius(14)
+                .font(.system(size: height * 0.4, weight: .semibold))
         }
     }
     
     @ViewBuilder
      func keypadButton(_ label: String, color: Color = .gray, size: CGFloat, fontSize: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label).frame(width: size, height: size).background(color.opacity(0.8)).foregroundColor(.white).cornerRadius(14).font(.system(size: fontSize, weight: .semibold))
+            Text(label)
+                .frame(width: size, height: size)
+                .background(color.opacity(0.8))
+                .foregroundColor(.white)
+                .cornerRadius(14)
+                .font(.system(size: fontSize, weight: .semibold))
         }
     }
 }

@@ -6,7 +6,6 @@
 
 import SwiftUI
 
-// --- NEW: Main selection view ---
 struct SettingsSelectionView: View {
     @EnvironmentObject var viewModel: WorkerViewModel
     @Binding var isPresented: Bool
@@ -18,18 +17,8 @@ struct SettingsSelectionView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("New Project Setup")) {
-                    Button("Manual Setup Wizard") {
-                        // Clear old data
-                        viewModel.companyName = ""
-                        viewModel.projectName = ""
-                        viewModel.lineLeaderName = ""
-                        
-                        // Trigger the view change
-                        viewModel.showManualSetup = true
-                        isPresented = false // Close the settings menu
-                    }
-                }
+                // --- REMOVED: Manual Setup Section (Moved to Main Screen) ---
+                
                 NavigationLink("App Settings", destination: AppSettingsView(
                     showingSettingsKeyboard: $showingSettingsKeyboard,
                     settingsKeyboardBinding: $settingsKeyboardBinding,
