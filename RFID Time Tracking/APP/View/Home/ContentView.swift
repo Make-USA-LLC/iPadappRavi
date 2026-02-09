@@ -185,6 +185,17 @@ struct ContentView: View {
                         }
                     }
                 }
+                // --- ADD THIS FINISH ALERT BLOCK ---
+                        .alert(isPresented: $showingFinishConfirmation) {
+                            Alert(
+                                title: Text("Finish Project?"),
+                                message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers."),
+                                primaryButton: .destructive(Text("Finish")) {
+                                    sendEmailAndFinishProject()
+                                },
+                                secondaryButton: .cancel()
+                            )
+                        }
                 .navigationViewStyle(.stack)
             }
             .edgesIgnoringSafeArea(.all)
@@ -503,17 +514,7 @@ struct ContentView: View {
                             }
                     }
                 }
-        // --- ADD THIS FINISH ALERT BLOCK ---
-                .alert(isPresented: $showingFinishConfirmation) {
-                    Alert(
-                        title: Text("Finish Project?"),
-                        message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers."),
-                        primaryButton: .destructive(Text("Finish")) {
-                            sendEmailAndFinishProject()
-                        },
-                        secondaryButton: .cancel()
-                    )
-                }
+
         // ------------------------------
         .alert(isPresented: $showingEmailAlert) {
             Alert(
