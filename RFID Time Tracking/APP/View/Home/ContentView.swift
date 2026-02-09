@@ -81,6 +81,10 @@ struct ContentView: View {
     // --- NEW: State for "Who's In" Sheet ---
     @State var showingWhosInSheet = false
     
+    // ---Finish Reconfirmation ---
+    @State var showingFinishConfirmation = false
+    // -----------------------------
+    
     // AppStorage-based persisted settings available directly in the view
     @AppStorage(AppStorageKeys.smtpRecipient)  var smtpRecipient = "productionreports@makeit.buzz"
     @AppStorage(AppStorageKeys.smtpHost)  var smtpHost = "smtp.office365.com"
@@ -481,18 +485,35 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled()
         }
-        // --- NEW SHEET FOR WHO'S IN ---
-        .sheet(isPresented: $showingWhosInSheet) {
-            NavigationView {
-                ActiveWorkerView()
-                    .environmentObject(viewModel)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Close") { showingWhosInSheet = false }
-                        }
+        // --- UPDATED SHEET FOR WHO'S IN ---
+                .sheet(isPresented: $showingWhosInSheet, onDismiss: {
+                    // 1. AUTO-REFOCUS LOGIC
+                    // Wait 0.5s for the sheet to fully disappear, then force focus back to RFID
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        self.isRFIDFieldFocused = true
                     }
-            }
-        }
+                }) {
+                    NavigationView {
+                        ActiveWorkerView() // Ensure this is ActiveWorkerView, not ManualClockOutView
+                            .environmentObject(viewModel)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Close") { showingWhosInSheet = false }
+                                }
+                            }
+                    }
+                }
+        // --- ADD THIS FINISH ALERT BLOCK ---
+                .alert(isPresented: $showingFinishConfirmation) {
+                    Alert(
+                        title: Text("Finish Project?"),
+                        message: Text("Are you sure you want to finish '\(viewModel.projectName)'? This will clock out all workers."),
+                        primaryButton: .destructive(Text("Finish")) {
+                            sendEmailAndFinishProject()
+                        },
+                        secondaryButton: .cancel()
+                    )
+                }
         // ------------------------------
         .alert(isPresented: $showingEmailAlert) {
             Alert(

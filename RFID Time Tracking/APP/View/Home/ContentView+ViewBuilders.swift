@@ -300,39 +300,39 @@ extension ContentView {
                 }
                 
                 // --- MODIFIED: ADD "Who's In" Button Next to Counter ---
-                HStack(spacing: 15) {
-                    Text("People Clocked In: \(viewModel.totalPeopleWorking)")
-                        .font(.system(size: headerFontSize, weight: .medium))
-                        .foregroundColor(.black)
-                    
-                    // The button that triggers the sheet
-                                        Button(action: {
-                                            // 1. Close the keyboard (stop editing)
-                                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                                            
-                                            // 2. Clear focus state specifically
-                                            isRFIDFieldFocused = false
-                                            
-                                            // 3. Wait 0.1s for keyboard to slide down, THEN open sheet
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                                showingWhosInSheet = true
-                                            }
-                                        }) {
-                                            HStack(spacing: 5) {
-                                                Image(systemName: "list.bullet.rectangle.portrait")
-                                                Text("Who?")
-                                            }
-                                            .font(.system(size: headerFontSize * 0.5, weight: .bold))
-                                            .padding(.vertical, 8)
-                                            .padding(.horizontal, 12)
-                                            .background(Color.blue.opacity(0.1))
-                                            .foregroundColor(.blue)
-                                            .cornerRadius(8)
+                                HStack(spacing: 15) {
+                                    Text("People Clocked In: \(viewModel.totalPeopleWorking)")
+                                        .font(.system(size: headerFontSize, weight: .medium))
+                                        .foregroundColor(.black)
+                                    
+                                    // The button that triggers the sheet
+                                    Button(action: {
+                                        // 1. Force Keyboard to Close immediately
+                                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                        
+                                        // 2. Clear focus state variables
+                                        isRFIDFieldFocused = false
+                                        
+                                        // 3. Wait a tiny bit for keyboard animation, then show sheet
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                            showingWhosInSheet = true
                                         }
-                }
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity)
-                // --------------------------------------------------------
+                                    }) {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: "list.bullet.rectangle.portrait")
+                                            Text("Who's In?")
+                                        }
+                                        .font(.system(size: headerFontSize * 0.5, weight: .bold))
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 12)
+                                        .background(Color.blue.opacity(0.1))
+                                        .foregroundColor(.blue)
+                                        .cornerRadius(8)
+                                    }
+                                }
+                                .padding(.bottom, 10)
+                                .frame(maxWidth: .infinity)
+                                // --------------------------------------------------------
                 
                 // REDUCED BUTTON SIZES
                 let buttonWidth = min(geometry.size.width * 0.28, 220.0)
@@ -377,12 +377,16 @@ extension ContentView {
                                 .background(Color.red).foregroundColor(.white).cornerRadius(14)
                         }
                         
-                        Button(action: { sendEmailAndFinishProject() }) {
-                            Text("Finish").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
-                                .background(Color.green).foregroundColor(.white).cornerRadius(14)
-                        }
-                        .disabled(isSendingEmail).opacity(isSendingEmail ? 0.5 : 1.0)
-                    }
+                        Button(action: {
+                                                    // OLD: sendEmailAndFinishProject()
+                                                    // NEW:
+                                                    showingFinishConfirmation = true
+                                                }) {
+                                                    Text("Finish").font(buttonFont).frame(width: buttonWidth, height: buttonHeight)
+                                                        .background(Color.green).foregroundColor(.white).cornerRadius(14)
+                                                }
+                                                .disabled(isSendingEmail).opacity(isSendingEmail ? 0.5 : 1.0)
+                                            }
                 }
                 .padding(.bottom, 20)
                 
