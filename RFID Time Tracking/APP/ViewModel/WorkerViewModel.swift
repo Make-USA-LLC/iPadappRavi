@@ -261,7 +261,14 @@ class WorkerViewModel: ObservableObject {
             _ = toggleQCPause(type: .qcComponent, code: "REMOTE_OVERRIDE")
             
         case "TECH_PAUSE":
-            _ = toggleTechPause(code: "REMOTE_OVERRIDE")
+            // 1. Check if there is a line name attached (e.g., "TECH_PAUSE|Line 1")
+                        var lineParam: String? = nil
+                        if parts.count > 1 {
+                            lineParam = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                        
+                        // 2. Pass the line to the toggle function
+                        _ = toggleTechPause(code: "REMOTE_OVERRIDE", line: lineParam)
 
         default: break
         }

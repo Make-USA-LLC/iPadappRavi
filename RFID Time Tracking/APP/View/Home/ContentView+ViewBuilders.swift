@@ -372,8 +372,10 @@ extension ContentView {
                     } else if viewModel.pauseState == .technician {
                         VStack(spacing: 10) {
                             Text("🔧 TECH PAUSE 🔧").font(.largeTitle).bold().foregroundColor(.orange)
-                            Text("MACHINE MALFUNCTION").font(.title)
-                            Button("RESUME (TECH)") { viewModel.resumeTimer() }
+                            Text(viewModel.techIssueLine.isEmpty ? "MACHINE MALFUNCTION" : viewModel.techIssueLine)
+                                .font(.title)
+                                .multilineTextAlignment(.center)
+                            Button("RESUME") { viewModel.resumeTimer() }
                                 .font(.title).bold().padding().background(Color.green).foregroundColor(.white).cornerRadius(10)
                         }
                         .frame(maxWidth: .infinity, maxHeight: 180)
@@ -525,7 +527,7 @@ extension ContentView {
     }
 }
 
-// MARK: - PROCEDURES VIEW & SUBCOMPONENTS (APPENDED)
+/*// MARK: - PROCEDURES VIEW & SUBCOMPONENTS (APPENDED)
 
 struct ProceduresView: View {
     @ObservedObject var viewModel: WorkerViewModel
@@ -904,3 +906,4 @@ struct ProceduresView: View {
         }
     }
 }
+*/

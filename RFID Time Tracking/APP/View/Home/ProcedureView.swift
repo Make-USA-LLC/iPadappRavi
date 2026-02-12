@@ -1,4 +1,4 @@
-/*import SwiftUI
+import SwiftUI
 
 struct ProceduresView: View {
     @ObservedObject var viewModel: WorkerViewModel
@@ -8,6 +8,9 @@ struct ProceduresView: View {
     @State private var inputCode = ""
     @State private var targetAction: PauseType? = nil
     @State private var showError = false
+    
+    // New: Selected Machine for Tech Pause
+    @State private var selectedMachine: String? = nil
     
     var body: some View {
         GeometryReader { geometry in
@@ -43,6 +46,7 @@ struct ProceduresView: View {
                         targetAction = .qcCrew
                         inputCode = ""
                         showError = false
+                        selectedMachine = nil
                     }
                     
                     // 2. QC COMPONENT PAUSE
@@ -56,6 +60,7 @@ struct ProceduresView: View {
                         targetAction = .qcComponent
                         inputCode = ""
                         showError = false
+                        selectedMachine = nil
                     }
                     
                     // 3. TECH PAUSE
@@ -69,6 +74,7 @@ struct ProceduresView: View {
                         targetAction = .technician
                         inputCode = ""
                         showError = false
+                        selectedMachine = nil
                     }
                 }
                 .frame(height: 220) // Larger button area
@@ -79,41 +85,101 @@ struct ProceduresView: View {
                 // --- PIN PAD SECTION (Bottom Half) ---
                 if let target = targetAction {
                     VStack(spacing: 15) {
-                        Text("Enter \(target == .technician ? "Tech" : "QC") Code")
-                            .font(.title)
-                            .foregroundColor(.gray)
                         
-                        // Code Dots
-                        HStack(spacing: 15) {
-                            ForEach(0..<4) { index in
-                                Circle()
-                                    .stroke(Color.gray, lineWidth: 2)
-                                    .background(Circle().fill(inputCode.count > index ? Color.black : Color.clear))
-                                    .frame(width: 20, height: 20)
+                        // NEW: Machine Selection Dropdown
+                        if target == .technician {
+                            Text("Select Malfunctioning Machine")
+                                .font(.headline)
+                                .foregroundColor(.gray)
+                            
+                            Menu {
+                                ForEach(viewModel.availableLines, id: \.self) { machine in
+                                    Button(action: {
+                                        selectedMachine = machine
+                                        showError = false
+                                    }) {
+                                        HStack {
+                                            Text(machine)
+                                            if selectedMachine == machine {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    // Displays the name of the machine here
+                                    Text(selectedMachine ?? "Tap to Select Machine")
+                                        .font(.title2)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(selectedMachine == nil ? .gray : .primary)
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "chevron.down")
+                                        .font(.title3)
+                                        .foregroundColor(.gray)
+                                }
+                                .padding()
+                                .background(Color.white)
+                                .cornerRadius(12)
+                                .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(selectedMachine != nil ? Color.orange : Color.gray.opacity(0.3), lineWidth: 2)
+                                )
                             }
-                        }
-                        .padding(.bottom, 10)
-                        
-                        if showError {
-                            Text("Incorrect Code")
-                                .font(.title3)
-                                .bold()
-                                .foregroundColor(.red)
-                        } else {
-                            Text(" ") // Placeholder to keep layout stable
-                                .font(.title3)
+                            .frame(maxWidth: 400) // Limit width for cleaner look
+                            .padding(.bottom, 10)
                         }
                         
-                        // CUSTOM KEYPAD
-                        CustomPinPad(code: $inputCode, onCommit: {
-                            attemptUnlock(target: target)
-                        })
+                        // Only show Pin Pad if a machine is selected (for tech pause) or if it's not a tech pause
+                        if target != .technician || selectedMachine != nil {
+                            
+                            Text("Enter \(target == .technician ? "Tech" : "QC") Code")
+                                .font(.title)
+                                .foregroundColor(.gray)
+                            
+                            // Code Dots
+                            HStack(spacing: 15) {
+                                ForEach(0..<4) { index in
+                                    Circle()
+                                        .stroke(Color.gray, lineWidth: 2)
+                                        .background(Circle().fill(inputCode.count > index ? Color.black : Color.clear))
+                                        .frame(width: 20, height: 20)
+                                }
+                            }
+                            .padding(.bottom, 10)
+                            
+                            if showError {
+                                Text("Incorrect Code")
+                                    .font(.title3)
+                                    .bold()
+                                    .foregroundColor(.red)
+                            } else {
+                                Text(" ") // Placeholder to keep layout stable
+                                    .font(.title3)
+                            }
+                            
+                            // CUSTOM KEYPAD
+                            CustomPinPad(code: $inputCode, onCommit: {
+                                attemptUnlock(target: target)
+                            })
+                            
+                        } else if target == .technician && selectedMachine == nil {
+                            Spacer()
+                            Text("Please select a machine from the dropdown above.")
+                                .font(.title3)
+                                .foregroundColor(.orange)
+                                .padding()
+                            Spacer()
+                        }
                     }
                     .padding()
                     .background(Color.white)
                     .cornerRadius(20)
                     .shadow(radius: 5)
-                    .frame(maxWidth: 500) // Constrain width for better look on iPad
+                    .frame(maxWidth: 600)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     Spacer()
@@ -131,7 +197,8 @@ struct ProceduresView: View {
     func attemptUnlock(target: PauseType) {
         var success = false
         if target == .technician {
-            success = viewModel.toggleTechPause(code: inputCode)
+            // Pass the selected machine to the view model
+            success = viewModel.toggleTechPause(code: inputCode, line: selectedMachine)
         } else {
             success = viewModel.toggleQCPause(type: target, code: inputCode)
         }
@@ -245,4 +312,3 @@ struct PinButton: View {
         }
     }
 }
-*/
