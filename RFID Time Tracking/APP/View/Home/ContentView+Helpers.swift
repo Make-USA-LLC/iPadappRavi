@@ -234,19 +234,38 @@ extension ContentView {
     
     // Handle submission from the RFID text field. Shows a banner based
     // on the returned ScanFeedback and clears the input field.
-     func handleRFIDSubmit() {
-        if let feedback = viewModel.handleRFIDScan(for: rfidInput) {
-            switch feedback {
-            case .clockedIn(let id):
-                showBanner(message: "Worker \(id) Clocked In", type: .info)
-            case .clockedOut(let id):
-                showBanner(message: "Worker \(id) Clocked Out", type: .info)
-            case .ignoredPaused:
-                showBanner(message: "Scan Ignored: Timer is Paused", type: .warning)
-            case .ignoredFinished:
-                showBanner(message: "Scan Ignored: Project is Finished", type: .warning)
+    // In ContentView+Helpers.swift
+
+        func handleRFIDSubmit() {
+            // Capture input and clear field immediately so UI feels responsive
+            let scannedId = rfidInput
+            rfidInput = ""
+            
+            // Call the new Async function
+            viewModel.handleRFIDScan(for: scannedId) { feedback in
+                
+                // Ensure UI updates happen on the Main Thread
+                DispatchQueue.main.async {
+                    guard let feedback = feedback else { return }
+                    
+                    switch feedback {
+                    case .clockedIn(let id):
+                        self.showBanner(message: "Worker \(id) Clocked In", type: .info)
+                        
+                    case .clockedOut(let id):
+                        self.showBanner(message: "Worker \(id) Clocked Out", type: .info)
+                        
+                    case .ignoredPaused:
+                        self.showBanner(message: "Scan Ignored: Timer is Paused", type: .warning)
+                        
+                    case .ignoredFinished:
+                        self.showBanner(message: "Scan Ignored: Project is Finished", type: .warning)
+                        
+                    case .alreadyActive(let fleetId):
+                        // NEW ALERT
+                        self.showBanner(message: "BLOCKED: Worker active on \(fleetId)", type: .error)
+                        AudioPlayerManager.shared.playSound(named: "Buzzer") // Optional: Play error sound
+                    }
+                }
             }
-        }
-        rfidInput = ""
-    }
-}
+        }}

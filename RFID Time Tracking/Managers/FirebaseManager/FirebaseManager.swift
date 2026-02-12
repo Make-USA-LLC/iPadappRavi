@@ -33,9 +33,45 @@ final class FirebaseManager {
             completion(lines)
         }
     }
+    // MARK: - GLOBAL WORKER LOCK (Prevent Double Logins)
+        
+        /// Checks if a worker is currently active on another device.
+        /// Returns the fleetId if active, or nil if free (or if the lock is expired).
+        func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
+            db.collection("global_active_workers").document(workerId).getDocument { snapshot, error in
+                guard let data = snapshot?.data(),
+                      let fleetId = data["fleetId"] as? String,
+                      let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() else {
+                    // Document doesn't exist or is malformed -> Worker is FREE
+                    completion(nil)
+                    return
+                }
+                
+                // AUTOMATIC CLEANUP: If the lock is older than 12 hours, ignore it.
+                let twelveHours: TimeInterval = 12 * 60 * 60
+                if Date().timeIntervalSince(timestamp) > twelveHours {
+                    print("⚠️ Found expired lock for \(workerId). Treating as free.")
+                    completion(nil)
+                } else {
+                    // Worker is BUSY on fleetId
+                    completion(fleetId)
+                }
+            }
+        }
 
-    // ... [Keep existing PROJECT QUEUE, DROPDOWN CONFIG, FLEET SYNC, REPORTS, CLEANUP methods] ...
-    
+        /// Locks the worker to this specific iPad
+        func setGlobalWorkerActive(workerId: String, fleetId: String) {
+            let data: [String: Any] = [
+                "fleetId": fleetId,
+                "timestamp": FieldValue.serverTimestamp() // Server time for accuracy
+            ]
+            db.collection("global_active_workers").document(workerId).setData(data)
+        }
+
+        /// Unlocks the worker so they can sign in elsewhere
+        func setGlobalWorkerInactive(workerId: String) {
+            db.collection("global_active_workers").document(workerId).delete()
+        }
     // MARK: - PROJECT QUEUE
     func listenToProjectQueue(onUpdate: @escaping ([ProjectQueueItem]) -> Void) {
         queueListener?.remove()

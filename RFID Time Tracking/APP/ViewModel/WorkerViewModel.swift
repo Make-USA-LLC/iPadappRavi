@@ -506,6 +506,7 @@ class WorkerViewModel: ObservableObject {
             if let clockInTime = workers[id]?.clockInTime {
                 let timeWorkedInMinutes = now.timeIntervalSince(clockInTime) / 60
                 workers[id]?.totalMinutesWorked += timeWorkedInMinutes
+                FirebaseManager.shared.setGlobalWorkerInactive(workerId: id)
                 let event = ScanEvent(cardID: id, timestamp: now, action: .clockOut)
                 scanHistory.append(event)
             }
@@ -595,26 +596,57 @@ class WorkerViewModel: ObservableObject {
         pushStateToCloud(force: true)
     }
     
-    func handleRFIDScan(for id: String) -> ScanFeedback? {
-        guard !isProjectFinished, !isPaused else {
-            if isProjectFinished { return .ignoredFinished }
-            else if isPaused { return .ignoredPaused }
-            return nil
+    // In WorkerViewModel.swift
+
+        // NOTE: We changed the return type to Void and added a completion handler
+        func handleRFIDScan(for id: String, completion: @escaping (ScanFeedback?) -> Void) {
+            
+            guard !isProjectFinished, !isPaused else {
+                if isProjectFinished { completion(.ignoredFinished) }
+                else if isPaused { completion(.ignoredPaused) }
+                return
+            }
+
+            // Check local state first
+            let isClockingOut = workers[id]?.clockInTime != nil
+            
+            if isClockingOut {
+                // CLOCK OUT: Always allow immediately (no network check needed to leave)
+                scanCount += 1
+                scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockOut))
+                clockOut(for: id)
+                completion(.clockedOut(id))
+                
+            } else {
+                // CLOCK IN: Check Global Status first
+                FirebaseManager.shared.checkGlobalWorkerStatus(workerId: id) { [weak self] busyFleetId in
+                    guard let self = self else { return }
+                    
+                    if let busyFleetId = busyFleetId {
+                        // STOP! They are working elsewhere.
+                        // If it's THIS iPad, we might have a sync glitch, but generally we block.
+                        if busyFleetId == self.fleetIpadID {
+                            // Edge case: They are locked to US but not in our local list?
+                            // Safe to let them in.
+                            self.performClockIn(id: id, completion: completion)
+                        } else {
+                            completion(.alreadyActive(busyFleetId))
+                        }
+                    } else {
+                        // They are free. Let them in.
+                        self.performClockIn(id: id, completion: completion)
+                    }
+                }
+            }
         }
-        scanCount += 1
-        let action: ScanAction = workers[id]?.clockInTime != nil ? .clockOut : .clockIn
-        let event = ScanEvent(cardID: id, timestamp: Date(), action: action)
-        scanHistory.append(event)
-        
-        if action == .clockOut {
-            clockOut(for: id)
-            return .clockedOut(id)
-        } else {
+
+        // Helper to avoid duplicate code above
+        private func performClockIn(id: String, completion: @escaping (ScanFeedback?) -> Void) {
+            scanCount += 1
+            scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockIn))
             clockIn(for: id)
-            return .clockedIn(id)
+            completion(.clockedIn(id))
         }
-    }
-    
     // Inside WorkerViewModel
 
     func fetchLines() {
@@ -656,19 +688,31 @@ class WorkerViewModel: ObservableObject {
             }
         }
     }
+    
+    
+    // In WorkerViewModel.swift -> clockIn(for id: String)
+
     func clockIn(for id: String) {
         var worker = workers[id] ?? Worker(id: id, clockInTime: nil, totalMinutesWorked: 0)
         if worker.clockInTime == nil {
             worker.clockInTime = Date()
             workers[id] = worker
             recalcTotalPeopleWorking()
+            
+            // --- UPDATED: Always Lock, even if FleetID is missing ---
+            // Use the custom ID, or fallback to the Device Name, or a UUID
+            let lockID = !fleetIpadID.isEmpty ? fleetIpadID : (UIDevice.current.name)
+            
+            FirebaseManager.shared.setGlobalWorkerActive(workerId: id, fleetId: lockID)
+            // ---------------------------------------------------------
+
             saveState()
             pushStateToCloud(force: true)
         }
     }
     
     func clockOut(for id: String) {
-        guard var worker = workers[id], let clockInTime = worker.clockInTime else { return }
+            guard var worker = workers[id], let clockInTime = worker.clockInTime else { return }
         if scanHistory.last?.cardID != id {
             scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockOut))
             scanCount += 1
@@ -677,6 +721,7 @@ class WorkerViewModel: ObservableObject {
         worker.clockInTime = nil
         workers[id] = worker
         recalcTotalPeopleWorking()
+        FirebaseManager.shared.setGlobalWorkerInactive(workerId: id)
         saveState()
         pushStateToCloud(force: true)
     }
@@ -964,5 +1009,48 @@ class WorkerViewModel: ObservableObject {
             ]
             
             FirebaseManager.shared.saveFinalReport(report)
+        }
+    
+    // MARK: - GLOBAL WORKER LOCK (Prevent Double Logins)
+        
+        /// Checks if a worker is currently active on another device.
+        /// Returns the fleetId if active, or nil if free (or if the lock is expired).
+        func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
+            let docRef = db.collection("global_active_workers").document(workerId)
+            
+            docRef.getDocument { snapshot, error in
+                guard let data = snapshot?.data(),
+                      let fleetId = data["fleetId"] as? String,
+                      let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() else {
+                    // Document doesn't exist or is malformed -> Worker is FREE
+                    completion(nil)
+                    return
+                }
+                
+                // AUTOMATIC CLEANUP: If the lock is older than 12 hours, ignore it.
+                // This prevents workers from getting stuck if an iPad crashes/dies.
+                let twelveHours: TimeInterval = 12 * 60 * 60
+                if Date().timeIntervalSince(timestamp) > twelveHours {
+                    print("⚠️ Found expired lock for \(workerId). Treating as free.")
+                    completion(nil)
+                } else {
+                    // Worker is BUSY on fleetId
+                    completion(fleetId)
+                }
+            }
+        }
+
+        /// Locks the worker to this specific iPad
+        func setGlobalWorkerActive(workerId: String, fleetId: String) {
+            let data: [String: Any] = [
+                "fleetId": fleetId,
+                "timestamp": FieldValue.serverTimestamp() // Server time for accuracy
+            ]
+            db.collection("global_active_workers").document(workerId).setData(data)
+        }
+
+        /// Unlocks the worker so they can sign in elsewhere
+        func setGlobalWorkerInactive(workerId: String) {
+            db.collection("global_active_workers").document(workerId).delete()
         }
 }

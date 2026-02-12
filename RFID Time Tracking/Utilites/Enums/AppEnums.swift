@@ -48,6 +48,7 @@ enum ScanFeedback {
     case clockedOut(String)
     case ignoredPaused
     case ignoredFinished
+    case alreadyActive(String)
 }
 
 enum LunchFeedback {
