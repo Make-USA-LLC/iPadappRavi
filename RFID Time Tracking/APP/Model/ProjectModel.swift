@@ -2,7 +2,6 @@
 //  ProjectModel.swift
 //  RFID Time Tracking
 //
-//
 
 import Foundation
 import FirebaseFirestore
@@ -23,10 +22,8 @@ struct ProjectQueueItem: Codable, Identifiable, Equatable {
     var scanHistory: [ScanEvent]?
     var projectEvents: [ProjectEvent]?
     
-    // --- NEW FIELDS (Optional so old data doesn't break) ---
     var isBonusEligible: Bool?
     var bonusIneligibleReason: String?
-    // -------------------------------------------------------
     
     static func == (lhs: ProjectQueueItem, rhs: ProjectQueueItem) -> Bool {
         return lhs.id == rhs.id
@@ -44,8 +41,11 @@ struct ProjectEvent: Codable, Identifiable {
     let id = UUID()
     let timestamp: Date
     let type: ProjectEventType
+    // --- FIX: Add this property ---
+    var value: String?
     
     private enum CodingKeys: String, CodingKey {
-        case timestamp, type
+        // --- FIX: You MUST include 'value' here ---
+        case timestamp, type, value
     }
 }

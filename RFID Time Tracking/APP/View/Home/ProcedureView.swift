@@ -40,7 +40,7 @@ struct ProceduresView: View {
                         title: "QC: Crew Oversight",
                         icon: "exclamationmark.triangle.fill",
                         color: .purple,
-                        subtitle: "Cancels Bonus",
+                        subtitle: nil,
                         isSelected: targetAction == .qcCrew
                     ) {
                         targetAction = .qcCrew

@@ -337,28 +337,30 @@ class WorkerViewModel: ObservableObject {
     }
     
     func toggleQCPause(type: PauseType, code: String) -> Bool {
-        guard code == qcCode || code == "REMOTE_OVERRIDE" else { return false }
-        
-        if isPaused && pauseState == type {
-            // FIX: Explicitly set to running BEFORE calling resumeTimer
-            // otherwise resumeTimer() sees the QC state and blocks execution.
-            pauseState = .running
-            resumeTimer()
+            guard code == qcCode || code == "REMOTE_OVERRIDE" else { return false }
+            
+            if isPaused && pauseState == type {
+                pauseState = .running
+                resumeTimer()
+                return true
+            }
+            
+            isPaused = true
+            pauseState = type
+            if type == .qcCrew {
+                isBonusEligible = false
+                bonusIneligibleReason = "QC Pause: Crew Oversight"
+            }
+            
+            // --- CHANGED: Log specific QC type ---
+            let eventType: ProjectEventType = (type == .qcCrew) ? .qcCrew : .qcComponent
+            projectEvents.append(ProjectEvent(timestamp: Date(), type: eventType))
+            // -------------------------------------
+            
+            saveState()
+            pushStateToCloud(force: true)
             return true
         }
-        
-        // ... existing locking logic ...
-        isPaused = true
-        pauseState = type
-        if type == .qcCrew {
-            isBonusEligible = false
-            bonusIneligibleReason = "QC Pause: Crew Oversight"
-        }
-        projectEvents.append(ProjectEvent(timestamp: Date(), type: .pause))
-        saveState()
-        pushStateToCloud(force: true)
-        return true
-    }
 
     func toggleTechPause(code: String, line: String? = nil) -> Bool {
             guard code == techCode || code == "REMOTE_OVERRIDE" else { return false }
@@ -371,12 +373,15 @@ class WorkerViewModel: ObservableObject {
             isPaused = true
             pauseState = .technician
             
-            // Save the selected line if provided
+            // Update the transient state for the UI
             if let l = line {
                 self.techIssueLine = l
             }
             
-            projectEvents.append(ProjectEvent(timestamp: Date(), type: .pause))
+            // --- CHANGED: Store the line name in the event history ---
+            projectEvents.append(ProjectEvent(timestamp: Date(), type: .technician, value: line))
+            // ---------------------------------------------------------
+            
             saveState()
             pushStateToCloud(force: true)
             return true
@@ -928,19 +933,36 @@ class WorkerViewModel: ObservableObject {
         }
     
     func saveFinalReportToFirestore() {
-        let workerLog = workers.values.map { ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked] }
+            let workerLog = workers.values.map { ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked] }
 
-        let report: [String: Any] = [
-            "company": companyName,
-            "project": projectName,
-            "leader": lineLeaderName,
-            "category": category,
-            "size": projectSize,
-            "workerLog": workerLog,
-            "completedAt": FieldValue.serverTimestamp(),
-            "bonusEligible": isBonusEligible,
-            "bonusIneligibleReason": isBonusEligible ? "" : (bonusIneligibleReason.isEmpty ? "One or More employees did not properly clock in" : bonusIneligibleReason)
-        ]
-        FirebaseManager.shared.saveFinalReport(report)
-    }
+            // --- SAFE MAPPING ---
+            // We convert the struct array into a Dictionary array [[String: Any]]
+            let eventLog = projectEvents.map { event -> [String: Any] in
+                return [
+                    "type": event.type.rawValue,
+                    "timestamp": event.timestamp,
+                    "value": event.value ?? "" // Handle nil values safely
+                ]
+            }
+            
+            let report: [String: Any] = [
+                "company": companyName,
+                "project": projectName,
+                "leader": lineLeaderName,
+                "category": category,
+                "size": projectSize,
+                
+                "originalSeconds": originalCountdownSeconds,
+                "finalSeconds": countdownSeconds,
+                
+                "workerLog": workerLog,
+                "eventLog": eventLog, // <--- Pass the mapped dictionary, NOT the struct array
+                
+                "completedAt": FieldValue.serverTimestamp(),
+                "bonusEligible": isBonusEligible,
+                "bonusIneligibleReason": isBonusEligible ? "" : (bonusIneligibleReason.isEmpty ? "One or More employees did not properly clock in" : bonusIneligibleReason)
+            ]
+            
+            FirebaseManager.shared.saveFinalReport(report)
+        }
 }

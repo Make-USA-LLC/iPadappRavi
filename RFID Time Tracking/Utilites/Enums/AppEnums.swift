@@ -19,6 +19,9 @@ enum ProjectEventType: String, Codable {
     case pause = "Pause"
     case lunch = "Lunch"
     case save = "Saved"
+    case qcCrew = "QC (Crew)"
+        case qcComponent = "QC (Component)"
+        case technician = "Technician" 
 }
 
 

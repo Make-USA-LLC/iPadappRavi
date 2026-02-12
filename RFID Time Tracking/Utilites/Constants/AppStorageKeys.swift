@@ -39,6 +39,9 @@ struct AppStorageKeys {
     static let includeLunchCount = "includeLunchCount"
     static let includeScanCount = "includeScanCount"
     
+    static let includeQCLog = "includeQCLog"
+        static let includeTechLog = "includeTechLog"
+    
     // --- NEW KEYS ---
     static let includeCategory = "includeCategory"
     static let includeProjectSize = "includeProjectSize"

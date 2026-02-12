@@ -31,6 +31,11 @@ private struct EmailContentSettings {
     @AppStorage(AppStorageKeys.includeCategory) private var includeCategory = true
     @AppStorage(AppStorageKeys.includeProjectSize) private var includeProjectSize = true
     
+    
+    @AppStorage(AppStorageKeys.includeQCLog) private var includeQCLog = true
+    @AppStorage(AppStorageKeys.includeTechLog) private var includeTechLog = true
+    
+    
     // This function builds the text for the email body
     func buildEmailBody(viewModel: WorkerViewModel) -> String {
         
@@ -162,19 +167,56 @@ private struct EmailContentSettings {
         }
         */
         if includePauseLog {
-            body += "--------------------------\n"
-            body += "PAUSE LOG\n"
-            let events = viewModel.projectEvents.filter { $0.type == .pause }
-            if events.isEmpty {
-                body += "No pause events logged.\n\n"
-            } else {
-                for event in events {
-                    body += "\(dateFormatter.string(from: event.timestamp))\n"
+                    body += "--------------------------\n"
+                    body += "PAUSE LOG\n"
+                    // Filter specifically for generic pauses to avoid duplication
+                    let events = viewModel.projectEvents.filter { $0.type == .pause }
+                    if events.isEmpty {
+                        body += "No generic pause events logged.\n\n"
+                    } else {
+                        for event in events {
+                            body += "\(dateFormatter.string(from: event.timestamp))\n"
+                        }
+                        body += "\n"
+                    }
                 }
-                body += "\n"
-            }
-        }
-        
+                
+                // --- NEW: QC LOG ---
+                if includeQCLog {
+                    body += "--------------------------\n"
+                    body += "QC LOG\n"
+                    let events = viewModel.projectEvents.filter { $0.type == .qcCrew || $0.type == .qcComponent }
+                    if events.isEmpty {
+                        body += "No QC events logged.\n\n"
+                    } else {
+                        for event in events {
+                            let typeName = (event.type == .qcCrew) ? "QC (Crew)" : "QC (Component)"
+                            body += "[\(typeName)]: \(dateFormatter.string(from: event.timestamp))\n"
+                        }
+                        body += "\n"
+                    }
+                }
+
+                // --- NEW: TECH LOG ---
+                if includeTechLog {
+                    body += "--------------------------\n"
+                    body += "TECHNICIAN LOG\n"
+                    let events = viewModel.projectEvents.filter { $0.type == .technician }
+                    if events.isEmpty {
+                        body += "No technician events logged.\n\n"
+                    } else {
+                        for event in events {
+                            let dateStr = dateFormatter.string(from: event.timestamp)
+                            // Check if a machine/line name was saved
+                            if let machine = event.value, !machine.isEmpty {
+                                body += "[\(dateStr)]: \(machine)\n"
+                            } else {
+                                body += "[\(dateStr)]: General Issue\n"
+                            }
+                        }
+                        body += "\n"
+                    }
+                }
         if includeLunchLog {
             body += "--------------------------\n"
             body += "LUNCH LOG\n"
