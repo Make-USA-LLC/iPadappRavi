@@ -152,15 +152,12 @@ private struct EmailContentSettings {
             body += "\n\n"
         }
         
-        /*
-         In the Email Manager the "Total Time Worked (All Workers):" should be removed.
-         
         if includeTotalTimeWorked {
             let totalSecondsWorked = viewModel.workers.values.reduce(0) { $0 + ($1.totalMinutesWorked * 60) }
             let totalWorkTimeFormatted = formatTime(Int(totalSecondsWorked.rounded()))
             body += "Total Time Worked (All Workers): \(totalWorkTimeFormatted)\n\n"
         }
-        */
+        
         if includePauseLog {
             body += "--------------------------\n"
             body += "PAUSE LOG\n"
@@ -263,10 +260,15 @@ class EmailManager {
             text: body
         )
         
+        // Replace your SMTP initialization (Line 266) with this exact block:
         let smtp = SMTP(
-            hostname: settings.host,
-            email: settings.username,
-            password: settings.password
+            hostname: settings.host,           // smtp.office365.com
+            email: settings.username,          // The main account email (alerts@makeit.buzz)
+            password: settings.password,       // Use a 16-character App Password here
+            port: 587,                         // Port 587 is required for STARTTLS
+            tlsMode: .requireSTARTTLS,         // This resolves Error 3
+            tlsConfiguration: nil,             // Use default TLS config
+            authMethods: [.login]              // Office 365 requires .login for SMTP
         )
         
         // --- THIS IS THE FIX ---
