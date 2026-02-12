@@ -3,32 +3,32 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>108060794822-g7nnshjrm7cg2u32pcivhhdmdr4vrtfo.apps.googleusercontent.com</string>
+	<string>318235229810-f7dt1vme2pds5u57ngu0eb31hl3lco1i.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.108060794822-g7nnshjrm7cg2u32pcivhhdmdr4vrtfo</string>
+	<string>com.googleusercontent.apps.318235229810-f7dt1vme2pds5u57ngu0eb31hl3lco1i</string>
 	<key>API_KEY</key>
-	<string>AIzaSyAVisjWwC2pQskZv8OJfcyFIbZSUPlaYvc</string>
+	<string>AIzaSyDBrRYf7OfXlxHsjQVXSEToRTlQw-cIqUQ</string>
 	<key>GCM_SENDER_ID</key>
-	<string>108060794822</string>
+	<string>318235229810</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.MakeUSA.RFIDTimeTracker</string>
+	<string>com.MakeUSA.RFIDTimeClock</string>
 	<key>PROJECT_ID</key>
-	<string>make-usa-production-dashboard</string>
+	<string>makeusallc-dashboard</string>
 	<key>STORAGE_BUCKET</key>
-	<string>make-usa-production-dashboard.firebasestorage.app</string>
+	<string>makeusallc-dashboard.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
-	<false></false>
+	<false/>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<false></false>
+	<false/>
 	<key>IS_APPINVITE_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>IS_GCM_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>IS_SIGNIN_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:108060794822:ios:3444103e45198cac411cc7</string>
+	<string>1:318235229810:ios:10db5f17b6ef3c76624ceb</string>
 </dict>
 </plist>

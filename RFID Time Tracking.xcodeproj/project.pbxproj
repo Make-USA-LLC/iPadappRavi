@@ -13,7 +13,6 @@
 		D5CC35C22ECCCE660074689D /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35C12ECCCE660074689D /* FirebaseAnalytics */; };
 		D5CC35C42ECCCE660074689D /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35C32ECCCE660074689D /* FirebaseAnalyticsCore */; };
 		D5CC35C62ECCCE660074689D /* FirebaseAnalyticsIdentitySupport in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35C52ECCCE660074689D /* FirebaseAnalyticsIdentitySupport */; };
-		D5CC35C82ECCCE660074689D /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35C72ECCCE660074689D /* FirebaseAppCheck */; };
 		D5CC35CA2ECCCE660074689D /* FirebaseAppDistribution-Beta in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35C92ECCCE660074689D /* FirebaseAppDistribution-Beta */; };
 		D5CC35CC2ECCCE660074689D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35CB2ECCCE660074689D /* FirebaseAuth */; };
 		D5CC35CE2ECCCE660074689D /* FirebaseAuthCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = D5CC35CD2ECCCE660074689D /* FirebaseAuthCombine-Community */; };
@@ -38,9 +37,22 @@
 		D596B0AD2E96EB4C007B41EB /* RFID Time Tracking.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "RFID Time Tracking.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		32EF74C12F3D6CF7007E3756 /* Exceptions for "RFID Time Tracking" folder in "RFID Time Tracking" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"RFID-Time-Tracking-Info.plist",
+			);
+			target = D596B0AC2E96EB4C007B41EB /* RFID Time Tracking */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		D596B0AF2E96EB4C007B41EB /* RFID Time Tracking */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				32EF74C12F3D6CF7007E3756 /* Exceptions for "RFID Time Tracking" folder in "RFID Time Tracking" target */,
+			);
 			path = "RFID Time Tracking";
 			sourceTree = "<group>";
 		};
@@ -64,7 +76,6 @@
 				D5CC35C42ECCCE660074689D /* FirebaseAnalyticsCore in Frameworks */,
 				D5CC35E02ECCCE660074689D /* FirebaseInstallations in Frameworks */,
 				D5CC35CC2ECCCE660074689D /* FirebaseAuth in Frameworks */,
-				D5CC35C82ECCCE660074689D /* FirebaseAppCheck in Frameworks */,
 				D5CC35C22ECCCE660074689D /* FirebaseAnalytics in Frameworks */,
 				D5CC35E22ECCCE660074689D /* FirebaseMessaging in Frameworks */,
 				D5CC35DE2ECCCE660074689D /* FirebaseInAppMessaging-Beta in Frameworks */,
@@ -132,7 +143,6 @@
 				D5CC35C12ECCCE660074689D /* FirebaseAnalytics */,
 				D5CC35C32ECCCE660074689D /* FirebaseAnalyticsCore */,
 				D5CC35C52ECCCE660074689D /* FirebaseAnalyticsIdentitySupport */,
-				D5CC35C72ECCCE660074689D /* FirebaseAppCheck */,
 				D5CC35C92ECCCE660074689D /* FirebaseAppDistribution-Beta */,
 				D5CC35CB2ECCCE660074689D /* FirebaseAuth */,
 				D5CC35CD2ECCCE660074689D /* FirebaseAuthCombine-Community */,
@@ -349,6 +359,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "RFID-Time-Tracking-Info.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -362,7 +373,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 11.5;
-				MARKETING_VERSION = 5.0.0;
+				MARKETING_VERSION = 5.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.MakeUSA.RFIDTimeClock;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -411,6 +422,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "RFID-Time-Tracking-Info.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -424,7 +436,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 11.5;
-				MARKETING_VERSION = 5.0.0;
+				MARKETING_VERSION = 5.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.MakeUSA.RFIDTimeClock;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -518,11 +530,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D5CC35BB2ECCC9D90074689D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAnalyticsIdentitySupport;
-		};
-		D5CC35C72ECCCE660074689D /* FirebaseAppCheck */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D5CC35BB2ECCC9D90074689D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAppCheck;
 		};
 		D5CC35C92ECCCE660074689D /* FirebaseAppDistribution-Beta */ = {
 			isa = XCSwiftPackageProductDependency;
