@@ -562,7 +562,7 @@ class WorkerViewModel: ObservableObject {
         timerText = String(format: "%@%02d:%02d:%02d", prefix, hours, minutes, seconds)
         
         saveState()
-        pushStateToCloud(force: false)
+        //pushStateToCloud(force: false)
     }
     
     func resetTimer(hours: Int, minutes: Int, seconds: Int) {
