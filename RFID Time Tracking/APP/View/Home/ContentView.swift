@@ -78,6 +78,9 @@ struct ContentView: View {
     @State var showingQCUnlockAlert = false
     @State var qcUnlockCode = ""
     
+    // Machine Setup
+    @State var showingMachineSetupSheet = false
+    
     // AppStorage
     @AppStorage(AppStorageKeys.smtpRecipient)  var smtpRecipient = "productionreports@makeit.buzz"
     @AppStorage(AppStorageKeys.smtpHost)  var smtpHost = "smtp.office365.com"
@@ -204,6 +207,9 @@ struct ContentView: View {
         .sheet(isPresented: $showingQCUnlockSheet) {
             UnlockView(viewModel: viewModel, isPresented: $showingQCUnlockSheet)
         }
+        .sheet(isPresented: $showingMachineSetupSheet) {
+            MachineSetupView(viewModel: viewModel, isPresented: $showingMachineSetupSheet)
+        }
         .alert(isPresented: $showingEmailAlert) {
             Alert(title: Text(emailAlertTitle), message: Text(emailAlertMessage), dismissButton: .default(Text("OK")))
         }
@@ -238,51 +244,57 @@ struct ContentView: View {
     // MARK: - Sub-Views to Fix Compiler Timeout
     
     var mainInterfaceLayer: some View {
-        GeometryReader { geometry in
-            NavigationView {
-                ZStack {
-                    Image("MakeLogo-copy")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .edgesIgnoringSafeArea(.all)
-                        .opacity(0.35)
-                    
-                    VStack {
-                        if shouldShowTimerScreen {
-                            timerRunningScreen()
-                        } else if viewModel.showManualSetup {
-                            projectInfoScreen(geometry: geometry)
-                        } else {
-                            waitingForCommandScreen()
+            GeometryReader { geometry in
+                NavigationView {
+                    ZStack {
+                        Image("MakeLogo-copy")
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .edgesIgnoringSafeArea(.all)
+                            .opacity(0.35)
+                        
+                        VStack {
+                            if shouldShowTimerScreen {
+                                // --- NEW CHECK ---
+                                if viewModel.isCountUp {
+                                    machineSetupRunningScreen()
+                                } else {
+                                    timerRunningScreen()
+                                }
+                                // -----------------
+                            } else if viewModel.showManualSetup {
+                                projectInfoScreen(geometry: geometry)
+                            } else {
+                                waitingForCommandScreen()
+                            }
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        
+                        VStack {
+                            Spacer()
+                            Text("Version " + appVersion + " | © " + currentYear + " Make USA LLC")
+                        }
+                        .font(.caption)
+                        .foregroundColor(.black)
+                        .padding(.bottom, 40)
+                        .ignoresSafeArea(.keyboard)
+                    }
+                    .navigationTitle(shouldShowTimerScreen ? (viewModel.isCountUp ? "Machine Setup" : "Timer Running") : "Set Project Info")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button(action: { showingSettingsPasswordSheet = true }) {
+                                Image(systemName: "line.3.horizontal")
+                            }
                         }
                     }
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    
-                    VStack {
-                        Spacer()
-                        Text("Version " + appVersion + " | © " + currentYear + " Make USA LLC")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.black)
-                    .padding(.bottom, 40)
-                    .ignoresSafeArea(.keyboard)
                 }
-                .navigationTitle(shouldShowTimerScreen ? "Timer Running" : "Set Project Info")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: { showingSettingsPasswordSheet = true }) {
-                            Image(systemName: "line.3.horizontal")
-                        }
-                    }
-                }
+                .navigationViewStyle(.stack)
             }
-            .navigationViewStyle(.stack)
+            .edgesIgnoringSafeArea(.all)
         }
-        .edgesIgnoringSafeArea(.all)
-    }
     
     var overlayLayer: some View {
         Group {
@@ -603,5 +615,61 @@ struct UnlockPinButton: View {
     }
 }
 
-
-
+// MARK: - Machine Setup View
+struct MachineSetupView: View {
+    @ObservedObject var viewModel: WorkerViewModel
+    @Binding var isPresented: Bool
+    @State private var selectedLine = ""
+    @State private var selectedProjectID = ""
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Machine Configuration")) {
+                    Picker("Select Line", selection: $selectedLine) {
+                        Text("Select Line").tag("")
+                        ForEach(viewModel.availableLines, id: \.self) { line in
+                            Text(line).tag(line)
+                        }
+                    }
+                }
+                
+                Section(header: Text("Project")) {
+                    Picker("Select Upcoming Project", selection: $selectedProjectID) {
+                        Text("Select Project").tag("")
+                        ForEach(viewModel.projectQueue) { project in
+                            Text("\(project.project) (\(project.company))").tag(project.id ?? "")
+                        }
+                    }
+                }
+                
+                Section {
+                    Button(action: startSetup) {
+                        HStack {
+                            Spacer()
+                            Text("Start Setup Timer")
+                                .bold()
+                                .foregroundColor(.white)
+                            Spacer()
+                        }
+                    }
+                    .listRowBackground(Color.blue)
+                    .disabled(selectedLine.isEmpty || selectedProjectID.isEmpty)
+                }
+            }
+            .navigationTitle("Machine Setup")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isPresented = false }
+                }
+            }
+        }
+    }
+    
+    func startSetup() {
+        if let project = viewModel.projectQueue.first(where: { $0.id == selectedProjectID }) {
+            viewModel.startMachineSetup(line: selectedLine, project: project)
+            isPresented = false
+        }
+    }
+}

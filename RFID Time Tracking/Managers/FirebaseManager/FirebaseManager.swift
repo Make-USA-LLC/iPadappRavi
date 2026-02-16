@@ -19,7 +19,27 @@ final class FirebaseManager {
 
     private init() {}
 
-    // ... [Keep existing AUTH and WORKERS methods same as before] ...
+    // MARK: - AUTH
+    func observeAuthState(onAuthenticated: @escaping (User) -> Void) {
+        _ = Auth.auth().addStateDidChangeListener { _ , user in
+            if let user = user {
+                onAuthenticated(user)
+            }
+        }
+    }
+
+    // MARK: - WORKERS
+    func listenToWorkers(onUpdate: @escaping ([String: String]) -> Void) {
+        db.collection("workers").addSnapshotListener { snapshot, _ in
+            guard let docs = snapshot?.documents else { return }
+
+            var cache: [String: String] = [:]
+            for doc in docs {
+                cache[doc.documentID] = doc.data()["name"] as? String ?? "Unknown"
+            }
+            onUpdate(cache)
+        }
+    }
 
     // MARK: - LINES (NEW)
     func fetchLines(completion: @escaping ([String]) -> Void) {
@@ -33,45 +53,39 @@ final class FirebaseManager {
             completion(lines)
         }
     }
+    
     // MARK: - GLOBAL WORKER LOCK (Prevent Double Logins)
-        
-        /// Checks if a worker is currently active on another device.
-        /// Returns the fleetId if active, or nil if free (or if the lock is expired).
-        func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
-            db.collection("global_active_workers").document(workerId).getDocument { snapshot, error in
-                guard let data = snapshot?.data(),
-                      let fleetId = data["fleetId"] as? String,
-                      let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() else {
-                    // Document doesn't exist or is malformed -> Worker is FREE
-                    completion(nil)
-                    return
-                }
-                
-                // AUTOMATIC CLEANUP: If the lock is older than 12 hours, ignore it.
-                let twelveHours: TimeInterval = 12 * 60 * 60
-                if Date().timeIntervalSince(timestamp) > twelveHours {
-                    print("⚠️ Found expired lock for \(workerId). Treating as free.")
-                    completion(nil)
-                } else {
-                    // Worker is BUSY on fleetId
-                    completion(fleetId)
-                }
+    func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
+        db.collection("global_active_workers").document(workerId).getDocument { snapshot, error in
+            guard let data = snapshot?.data(),
+                  let fleetId = data["fleetId"] as? String,
+                  let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() else {
+                completion(nil)
+                return
+            }
+            
+            let twelveHours: TimeInterval = 12 * 60 * 60
+            if Date().timeIntervalSince(timestamp) > twelveHours {
+                print("⚠️ Found expired lock for \(workerId). Treating as free.")
+                completion(nil)
+            } else {
+                completion(fleetId)
             }
         }
+    }
 
-        /// Locks the worker to this specific iPad
-        func setGlobalWorkerActive(workerId: String, fleetId: String) {
-            let data: [String: Any] = [
-                "fleetId": fleetId,
-                "timestamp": FieldValue.serverTimestamp() // Server time for accuracy
-            ]
-            db.collection("global_active_workers").document(workerId).setData(data)
-        }
+    func setGlobalWorkerActive(workerId: String, fleetId: String) {
+        let data: [String: Any] = [
+            "fleetId": fleetId,
+            "timestamp": FieldValue.serverTimestamp()
+        ]
+        db.collection("global_active_workers").document(workerId).setData(data)
+    }
 
-        /// Unlocks the worker so they can sign in elsewhere
-        func setGlobalWorkerInactive(workerId: String) {
-            db.collection("global_active_workers").document(workerId).delete()
-        }
+    func setGlobalWorkerInactive(workerId: String) {
+        db.collection("global_active_workers").document(workerId).delete()
+    }
+
     // MARK: - PROJECT QUEUE
     func listenToProjectQueue(onUpdate: @escaping ([ProjectQueueItem]) -> Void) {
         queueListener?.remove()
@@ -128,26 +142,9 @@ final class FirebaseManager {
         db.collection("reports").addDocument(data: report)
     }
     
-    // MARK: - AUTH
-    func observeAuthState(onAuthenticated: @escaping (User) -> Void) {
-        _ = Auth.auth().addStateDidChangeListener { _ , user in
-            if let user = user {
-                onAuthenticated(user)
-            }
-        }
-    }
-
-    // MARK: - WORKERS
-    func listenToWorkers(onUpdate: @escaping ([String: String]) -> Void) {
-        db.collection("workers").addSnapshotListener { snapshot, _ in
-            guard let docs = snapshot?.documents else { return }
-
-            var cache: [String: String] = [:]
-            for doc in docs {
-                cache[doc.documentID] = doc.data()["name"] as? String ?? "Unknown"
-            }
-            onUpdate(cache)
-        }
+    // --- NEW: Save to specific Machine Setup collection ---
+    func saveMachineSetupReport(_ report: [String: Any]) {
+        db.collection("machine_setup_reports").addDocument(data: report)
     }
 
     // MARK: - CLEANUP

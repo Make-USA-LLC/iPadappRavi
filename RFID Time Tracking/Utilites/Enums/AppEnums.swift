@@ -2,7 +2,6 @@
 //  AppEnums.swift
 //  RFID Time Tracking
 //
-
 //
 
 import Foundation
@@ -20,35 +19,31 @@ enum ProjectEventType: String, Codable {
     case lunch = "Lunch"
     case save = "Saved"
     case qcCrew = "QC (Crew)"
-        case qcComponent = "QC (Component)"
-        case technician = "Technician" 
+    case qcComponent = "QC (Component)"
+    case technician = "Technician"
 }
 
 
 // --- MODIFIED: Enum to track pause reason ---
-// PauseType distinguishes normal running, manual pauses, and two
-// kinds of lunch pauses (manual 30-min and automatic window-driven).
 enum PauseType: Codable {
     case running
     case manual
-    case manualLunch // New: For 30-min hard-coded pause
-    case autoLunch   // New: For pausing only during a window
-    case qcCrew       // "Crew Oversight"
-        case qcComponent  // "Component Issues"
-        case technician
-    
-    // This case exists to help migrate older app versions
-    case lunch
+    case manualLunch
+    case autoLunch
+    case qcCrew
+    case qcComponent
+    case technician
+    case lunch // Legacy
 }
 
 // --- NEW: Enums for View Feedback ---
-// Lightweight return types for actions that the UI can react to.
 enum ScanFeedback {
     case clockedIn(String)
     case clockedOut(String)
     case ignoredPaused
     case ignoredFinished
     case alreadyActive(String)
+    case invalidScan(String) // <--- ADDED THIS CASE
 }
 
 enum LunchFeedback {
@@ -63,7 +58,6 @@ enum BannerType {
     case warning
     case error
     
-    // Color and icon helper accessors so Views can render consistently
     var color: Color {
         switch self {
         case .info: return Color.blue.opacity(0.9)

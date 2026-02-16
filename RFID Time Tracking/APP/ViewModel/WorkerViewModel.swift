@@ -49,6 +49,9 @@ class WorkerViewModel: ObservableObject {
     public var countdownSeconds: Int = 0
     @Published var originalCountdownSeconds: Int = 0
     
+    // --- NEW: Count Up Mode ---
+    @Published var isCountUp = false
+    
     // --- NEW: Dynamic Data ---
     @Published var projectQueue: [ProjectQueueItem] = []
     @Published var availableCategories: [String] = [ "Fragrance", "Skin Care", "Kitting", "VOC" ]
@@ -126,7 +129,11 @@ class WorkerViewModel: ObservableObject {
         worker.totalMinutesWorked = newTotalMinutes
         workers[id] = worker
         
-        countdownSeconds -= differenceInSeconds
+        if isCountUp {
+             countdownSeconds += differenceInSeconds
+        } else {
+             countdownSeconds -= differenceInSeconds
+        }
         
         // Ensure bonus logic triggers safely with a small tolerance
         if abs(differenceInMinutes) > 0.01 {
@@ -187,6 +194,7 @@ class WorkerViewModel: ObservableObject {
         
         if let val = data["isBonusEligible"] as? Bool { self.isBonusEligible = val }
         if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
+        if let val = data["isCountUp"] as? Bool { self.isCountUp = val }
         
         self.countdownSeconds = seconds
         self.originalCountdownSeconds = seconds
@@ -539,16 +547,21 @@ class WorkerViewModel: ObservableObject {
             lastUpdateTime = Date()
             
             let people = max(1, totalPeopleWorking)
-            let timeToSubtract = max(1, Int(round(elapsed * Double(people))))
-            let previousSeconds = countdownSeconds
-            countdownSeconds -= timeToSubtract
+            let calculatedTime = max(1, Int(round(elapsed * Double(people))))
             
-            if previousSeconds > 0 && countdownSeconds <= 0 {
-                if !hasPlayedBuzzerAtZero {
-                    AudioPlayerManager.shared.playSound(named: "Buzzer")
-                    hasPlayedBuzzerAtZero = true
-                    saveState()
-                }
+            if isCountUp {
+                 countdownSeconds += calculatedTime
+            } else {
+                 let previousSeconds = countdownSeconds
+                 countdownSeconds -= calculatedTime
+                 
+                 if previousSeconds > 0 && countdownSeconds <= 0 {
+                     if !hasPlayedBuzzerAtZero {
+                         AudioPlayerManager.shared.playSound(named: "Buzzer")
+                         hasPlayedBuzzerAtZero = true
+                         saveState()
+                     }
+                 }
             }
         } else {
             lastUpdateTime = Date()
@@ -580,6 +593,33 @@ class WorkerViewModel: ObservableObject {
         pushStateToCloud(force: true)
     }
     
+    // --- NEW: Start Machine Setup (Count Up) ---
+    func startMachineSetup(line: String, project: ProjectQueueItem) {
+        // Reset state first
+        self.resetData()
+        
+        // Populate info from Queue
+        self.companyName = project.company
+        self.projectName = project.project
+        self.category = project.category
+        self.projectSize = project.size
+        
+        // Use line name as leader name for visibility, or keep it distinct if preferred
+        self.lineLeaderName = "Setup: \(line)"
+        self.pendingQueueIdToDelete = project.id
+        
+        // Initialize Timer
+        self.countdownSeconds = 0
+        self.originalCountdownSeconds = 0
+        self.isCountUp = true
+        self.isCountingDown = true
+        self.isPaused = false // Automatically start, but waits for 1 scan (tech)
+        
+        self.startTimer()
+        self.saveState()
+        self.pushStateToCloud(force: true)
+    }
+    
     func resumeTimer() {
         guard !isProjectFinished else { return }
         
@@ -598,9 +638,40 @@ class WorkerViewModel: ObservableObject {
     
     // In WorkerViewModel.swift
 
-        // NOTE: We changed the return type to Void and added a completion handler
-        func handleRFIDScan(for id: String, completion: @escaping (ScanFeedback?) -> Void) {
+    // NOTE: We changed the return type to Void and added a completion handler
+    func handleRFIDScan(for rawId: String, completion: @escaping (ScanFeedback?) -> Void) {
             
+            // --- 1. SANITIZE & VALIDATE ---
+            // Firebase Document IDs cannot be empty, contain forward slashes, be . or .., or match __.*__
+            let cleanedId = rawId.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            guard !cleanedId.isEmpty else {
+                print("⚠️ BLOCKED: Empty scan.")
+                completion(.invalidScan("Scan cannot be empty")) // <--- CHANGED
+                return
+            }
+            
+            guard !cleanedId.contains("/") else {
+                print("⚠️ BLOCKED: Scan contains illegal character '/'.")
+                completion(.invalidScan("Scan contains illegal character '/'")) // <--- CHANGED
+                return
+            }
+            
+            guard cleanedId != "." && cleanedId != ".." else {
+                print("⚠️ BLOCKED: Scan is illegal reserved name.")
+                completion(.invalidScan("Reserved Name Violation")) // <--- CHANGED
+                return
+            }
+            
+            guard !(cleanedId.hasPrefix("__") && cleanedId.hasSuffix("__")) else {
+                 print("⚠️ BLOCKED: Scan matches reserved pattern.")
+                 completion(.invalidScan("Reserved Pattern Violation")) // <--- CHANGED
+                 return
+            }
+            
+            let id = cleanedId
+            
+            // --- 2. EXISTING LOGIC ---
             guard !isProjectFinished, !isPaused else {
                 if isProjectFinished { completion(.ignoredFinished) }
                 else if isPaused { completion(.ignoredPaused) }
@@ -623,30 +694,26 @@ class WorkerViewModel: ObservableObject {
                     guard let self = self else { return }
                     
                     if let busyFleetId = busyFleetId {
-                        // STOP! They are working elsewhere.
-                        // If it's THIS iPad, we might have a sync glitch, but generally we block.
                         if busyFleetId == self.fleetIpadID {
-                            // Edge case: They are locked to US but not in our local list?
-                            // Safe to let them in.
                             self.performClockIn(id: id, completion: completion)
                         } else {
                             completion(.alreadyActive(busyFleetId))
                         }
                     } else {
-                        // They are free. Let them in.
                         self.performClockIn(id: id, completion: completion)
                     }
                 }
             }
         }
 
-        // Helper to avoid duplicate code above
-        private func performClockIn(id: String, completion: @escaping (ScanFeedback?) -> Void) {
-            scanCount += 1
-            scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockIn))
-            clockIn(for: id)
-            completion(.clockedIn(id))
-        }
+    // Helper to avoid duplicate code above
+    private func performClockIn(id: String, completion: @escaping (ScanFeedback?) -> Void) {
+        scanCount += 1
+        scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockIn))
+        clockIn(for: id)
+        completion(.clockedIn(id))
+    }
+    
     // Inside WorkerViewModel
 
     func fetchLines() {
@@ -756,6 +823,7 @@ class WorkerViewModel: ObservableObject {
         originalCountdownSeconds = 0
         isBonusEligible = true
         bonusIneligibleReason = ""
+        isCountUp = false // Reset mode
         saveState()
         pushStateToCloud(force: true)
     }
@@ -825,6 +893,7 @@ class WorkerViewModel: ObservableObject {
         storage.save(isBonusEligible, forKey: "isBonusEligible")
         storage.save(bonusIneligibleReason, forKey: "bonusIneligibleReason")
         storage.save(lastCommandTimestamp ?? Date(), forKey: "lastCommandTimestamp")
+        storage.save(isCountUp, forKey: "isCountUp")
         
     }
 
@@ -853,6 +922,7 @@ class WorkerViewModel: ObservableObject {
         scanCount = storage.loadInt(forKey: "scanCount")
         isBonusEligible = storage.loadBool(forKey: "isBonusEligible")
         bonusIneligibleReason = storage.loadString(forKey: "bonusIneligibleReason")
+        isCountUp = storage.loadBool(forKey: "isCountUp")
         recalcTotalPeopleWorking()
         if isCountingDown || isProjectFinished {
             startTimer()
@@ -880,6 +950,7 @@ class WorkerViewModel: ObservableObject {
                 
                 if let val = data["isBonusEligible"] as? Bool { if self.isBonusEligible != val { self.isBonusEligible = val } }
                 if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
+                if let val = data["isCountUp"] as? Bool { self.isCountUp = val }
 
                 var logsUpdated = false
                 if let histArray = data["scanHistory"] as? [[String: Any]] {
@@ -964,6 +1035,7 @@ class WorkerViewModel: ObservableObject {
                 "isBonusEligible": isBonusEligible,
                 "bonusIneligibleReason": bonusIneligibleReason,
                 "techIssueLine": techIssueLine, // <--- ADD THIS
+                "isCountUp": isCountUp, // <--- ADD THIS
                 "scanHistory": scanHistory.map { ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp] },
                 "projectEvents": projectEvents.map { ["type": $0.type.rawValue, "timestamp": $0.timestamp] }
             ]
@@ -1007,9 +1079,14 @@ class WorkerViewModel: ObservableObject {
                 "bonusEligible": isBonusEligible,
                 "bonusIneligibleReason": isBonusEligible ? "" : (bonusIneligibleReason.isEmpty ? "One or More employees did not properly clock in" : bonusIneligibleReason)
             ]
-            
+        
+        // --- LOGIC SWITCH FOR REPORT DESTINATION ---
+        if isCountUp {
+            FirebaseManager.shared.saveMachineSetupReport(report)
+        } else {
             FirebaseManager.shared.saveFinalReport(report)
         }
+    }
     
     // MARK: - GLOBAL WORKER LOCK (Prevent Double Logins)
         

@@ -47,6 +47,25 @@ extension ContentView {
                     .cornerRadius(8)
             }
             
+            // --- NEW: MACHINE SETUP BUTTON ---
+            Button(action: {
+                showingMachineSetupSheet = true
+            }) {
+                HStack {
+                    Image(systemName: "gearshape.2.fill")
+                    Text("Machine Setup")
+                }
+                .font(.title2)
+                .padding()
+                .frame(minWidth: 300)
+                .background(Color.purple)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+                .shadow(radius: 5)
+            }
+            .padding(.horizontal, 40)
+            // ---------------------------------
+            
             Button(action: {
                 viewModel.companyName = ""
                 viewModel.projectName = ""
@@ -274,6 +293,144 @@ extension ContentView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(UIColor.systemGroupedBackground))
         .edgesIgnoringSafeArea(.all)
+    }
+    
+    // MARK: - Machine Setup Running Screen (Refined)
+    @ViewBuilder
+    func machineSetupRunningScreen() -> some View {
+        GeometryReader { geometry in
+            let timerFontSize = min(geometry.size.width * 0.18, 200)
+            let headerFontSize = min(geometry.size.width * 0.05, 40)
+            
+            VStack(spacing: 0) {
+                // HEADER TITLE
+                Text("MACHINE SETUP MODE")
+                    .font(.headline)
+                    .padding(8)
+                    .background(Color.purple.opacity(0.2))
+                    .cornerRadius(8)
+                    .padding(.top, 40)
+                
+                // TIMER DISPLAY
+                Text(viewModel.timerText)
+                    .font(.system(size: timerFontSize, weight: .bold, design: .monospaced))
+                    .minimumScaleFactor(0.5).lineLimit(1).foregroundColor(.black)
+                    .frame(maxWidth: .infinity).frame(height: timerFontSize * 1.1)
+                
+                // INFO
+                if !viewModel.companyName.isEmpty {
+                    Text(viewModel.companyName).font(.system(size: headerFontSize, weight: .medium))
+                        .foregroundColor(.black).padding(.bottom, 2).frame(maxWidth: .infinity)
+                }
+                
+                if !viewModel.projectName.isEmpty {
+                    Text(viewModel.projectName).font(.system(size: headerFontSize, weight: .medium))
+                        .foregroundColor(.black).padding(.bottom, 2).frame(maxWidth: .infinity)
+                }
+                
+                // In setup mode, "Line Leader" is used to store the "Setup: Line Name" string
+                if !viewModel.lineLeaderName.isEmpty {
+                    Text(viewModel.lineLeaderName).font(.title3)
+                        .foregroundColor(.gray).padding(.bottom, 20).frame(maxWidth: .infinity)
+                }
+                
+                // --- WORKER COUNT & WHO'S IN ---
+                HStack(spacing: 15) {
+                    Text("People Clocked In: \(viewModel.totalPeopleWorking)")
+                        .font(.system(size: headerFontSize, weight: .medium))
+                        .foregroundColor(.black)
+                    
+                    Button(action: {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        isRFIDFieldFocused = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { showingWhosInSheet = true }
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "list.bullet.rectangle.portrait")
+                            Text("Who's In?")
+                        }
+                        .font(.system(size: headerFontSize * 0.5, weight: .bold))
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .cornerRadius(8)
+                    }
+                }
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+                
+                Spacer()
+                
+                // --- VISIBLE RFID INPUT (MOVED UP) ---
+                VStack(spacing: 10) {
+                    TextField("Scan RFID Card", text: $rfidInput)
+                        .font(.system(size: min(geometry.size.width * 0.04, 28)))
+                        .padding().textFieldStyle(RoundedBorderTextFieldStyle())
+                        .frame(maxWidth: min(geometry.size.width * 0.85, 820))
+                        .focused($isRFIDFieldFocused)
+                        .onSubmit { handleRFIDSubmit(); self.isRFIDFieldFocused = true }
+                        .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { self.isRFIDFieldFocused = false } } }
+                }
+                .padding(.bottom, 20)
+                // --------------------------
+                
+                // CONTROLS (Pause, Lunch, Finish ONLY - MATCHING COLORS)
+                let buttonWidth = min(geometry.size.width * 0.28, 220.0)
+                let buttonHeight = min(geometry.size.height * 0.12, 100.0)
+                let buttonFont = Font.system(size: min(buttonWidth * 0.12, 24), weight: .semibold)
+                
+                HStack(spacing: 30) {
+                    // PAUSE (Blue/Green)
+                    Button(action: { if viewModel.isPaused { viewModel.resumeTimer() } else { showingPasswordSheet = true } }) {
+                        Text(viewModel.isPaused ? "Unpause" : "Pause")
+                            .font(buttonFont)
+                            .frame(width: buttonWidth, height: buttonHeight)
+                            .background(viewModel.isPaused ? Color.green : Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(14)
+                    }
+                    .disabled(viewModel.isProjectFinished)
+                    
+                    // LUNCH (Orange/Gray)
+                    Button(action: {
+                        let feedback = viewModel.takeLunchBreak()
+                        if feedback == .ignoredPaused { showBanner(message: "Cannot take lunch while manually paused.", type: .warning) }
+                        else if feedback == .ignoredNoWorkers { showBanner(message: "Cannot take lunch: No workers clocked in.", type: .warning) }
+                    }) {
+                        Text("Lunch")
+                            .font(buttonFont)
+                            .frame(width: buttonWidth, height: buttonHeight)
+                            .background(viewModel.hasUsedLunchBreak ? Color.gray : Color.orange)
+                            .foregroundColor(.white)
+                            .cornerRadius(14)
+                    }
+                    .disabled(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0)
+                    .opacity(viewModel.hasUsedLunchBreak || viewModel.isProjectFinished || viewModel.pauseState == .manual || viewModel.pauseState == .autoLunch || viewModel.totalPeopleWorking == 0 ? 0.5 : 1.0)
+                    
+                    // FINISH (Green)
+                    Button(action: { showingFinishConfirmation = true }) {
+                        Text("Finish")
+                            .font(buttonFont)
+                            .frame(width: buttonWidth, height: buttonHeight)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(14)
+                    }
+                    .disabled(isSendingEmail)
+                    .alert(isPresented: $showingFinishConfirmation) {
+                        Alert(
+                            title: Text("Finish Setup?"),
+                            message: Text("Are you sure you want to finish the setup for '\(viewModel.projectName)'?"),
+                            primaryButton: .destructive(Text("Finish")) { sendEmailAndFinishProject() },
+                            secondaryButton: .cancel()
+                        )
+                    }
+                }
+                .padding(.bottom, 60)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
     
     // MARK: - Timer Running Screen
@@ -526,384 +683,3 @@ extension ContentView {
         }
     }
 }
-
-/*// MARK: - PROCEDURES VIEW & SUBCOMPONENTS (APPENDED)
-
-struct ProceduresView: View {
-    @ObservedObject var viewModel: WorkerViewModel
-    @Environment(\.presentationMode) var presentationMode
-    
-    // UI State
-    @State private var inputCode = ""
-    @State private var targetAction: PauseType? = nil
-    @State private var showError = false
-    
-    // New Line Selection State
-    @State private var lines: [String] = []
-    @State private var selectedLine: String = ""
-    
-    var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 20) {
-                
-                // --- TOP BAR ---
-                HStack {
-                    Text("Select Procedure")
-                        .font(.system(size: 40, weight: .bold))
-                    Spacer()
-                    Button("Close") {
-                        presentationMode.wrappedValue.dismiss()
-                    }
-                    .font(.title2)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.gray.opacity(0.2))
-                    .cornerRadius(10)
-                }
-                .padding(.top)
-                .padding(.horizontal)
-                
-                // --- SELECTION BUTTONS ---
-                HStack(spacing: 25) {
-                    ProcedureSelectionButton(
-                        title: "QC: Crew Oversight",
-                        icon: "exclamationmark.triangle.fill",
-                        color: .purple,
-                        subtitle: nil,
-                        isSelected: targetAction == .qcCrew
-                    ) {
-                        targetAction = .qcCrew
-                        inputCode = ""
-                        showError = false
-                    }
-                    
-                    ProcedureSelectionButton(
-                        title: "QC: Component Issue",
-                        icon: "shippingbox.fill",
-                        color: .blue,
-                        subtitle: nil,
-                        isSelected: targetAction == .qcComponent
-                    ) {
-                        targetAction = .qcComponent
-                        inputCode = ""
-                        showError = false
-                    }
-                    
-                    ProcedureSelectionButton(
-                        title: "Machine/Tech Issue",
-                        icon: "wrench.fill",
-                        color: .orange,
-                        subtitle: nil,
-                        isSelected: targetAction == .technician
-                    ) {
-                        targetAction = .technician
-                        inputCode = ""
-                        showError = false
-                    }
-                }
-                .frame(height: 300)
-                .padding(.horizontal)
-                
-                Divider()
-                
-                // --- PIN PAD & DROPDOWN SECTION ---
-                if let target = targetAction {
-                    VStack(spacing: 15) {
-                        
-                        // NEW: Line Selection for Tech Issue
-                        if target == .technician {
-                            VStack(spacing: 5) {
-                                Text("Select Line / Machine")
-                                    .font(.headline)
-                                    .foregroundColor(.gray)
-                                
-                                Menu {
-                                    ForEach(lines, id: \.self) { line in
-                                        Button(line) {
-                                            selectedLine = line
-                                        }
-                                    }
-                                } label: {
-                                    HStack {
-                                        Text(selectedLine.isEmpty ? "Select Line" : selectedLine)
-                                            .font(.title3)
-                                            .fontWeight(.bold)
-                                        Spacer()
-                                        Image(systemName: "chevron.down")
-                                    }
-                                    .padding()
-                                    .frame(maxWidth: .infinity)
-                                    .background(Color.gray.opacity(0.1))
-                                    .cornerRadius(10)
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-                        
-                        Text("Enter \(target == .technician ? "Tech" : "QC") Code")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                        
-                        // Code Dots
-                        HStack(spacing: 15) {
-                            ForEach(0..<4) { index in
-                                Circle()
-                                    .stroke(Color.gray, lineWidth: 2)
-                                    .background(Circle().fill(inputCode.count > index ? Color.black : Color.clear))
-                                    .frame(width: 20, height: 20)
-                            }
-                        }
-                        .padding(.bottom, 10)
-                        
-                        if showError {
-                            Text("Incorrect Code").font(.title3).bold().foregroundColor(.red)
-                        } else {
-                            Text(" ").font(.title3)
-                        }
-                        
-                        // CUSTOM KEYPAD
-                        CustomPinPad(code: $inputCode, onCommit: {
-                            attemptUnlock(target: target)
-                        })
-                    }
-                    .padding()
-                    .background(Color.white)
-                    .cornerRadius(20)
-                    .shadow(radius: 5)
-                    .frame(maxWidth: 500)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    Spacer()
-                    Text("Select a procedure above to begin.")
-                        .font(.title2)
-                        .foregroundColor(.gray.opacity(0.5))
-                    Spacer()
-                }
-            }
-        }
-        .background(Color(UIColor.systemGroupedBackground))
-        .onAppear {
-            // Use the lines already fetched by the ViewModel
-            if !viewModel.availableLines.isEmpty {
-                self.lines = viewModel.availableLines
-                self.selectedLine = viewModel.availableLines.first ?? "General Line"
-            } else {
-                self.lines = ["General Line"]
-                self.selectedLine = "General Line"
-            }
-        }
-        // Add this so the list updates if the data loads a second later
-        .onChange(of: viewModel.availableLines) { newLines in
-            if !newLines.isEmpty {
-                self.lines = newLines
-                // Only change selection if currently empty or default
-                if self.selectedLine.isEmpty || self.selectedLine == "General Line" {
-                    self.selectedLine = newLines.first ?? "General Line"
-                }
-            }
-        }
-    }
-    
-    // MARK: - Logic
-    func attemptUnlock(target: PauseType) {
-        var success = false
-        if target == .technician {
-            // Pass the selected line to the ViewModel
-            success = viewModel.toggleTechPause(code: inputCode, line: selectedLine)
-        } else {
-            success = viewModel.toggleQCPause(type: target, code: inputCode)
-        }
-        
-        if success {
-            presentationMode.wrappedValue.dismiss()
-        } else {
-            showError = true
-            inputCode = ""
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(.error)
-        }
-    }
-    
-    
-    // MARK: - Subcomponents
-    
-    struct ProcedureSelectionButton: View {
-        let title: String
-        let icon: String
-        let color: Color
-        let subtitle: String?
-        let isSelected: Bool
-        let action: () -> Void
-        
-        var body: some View {
-            Button(action: action) {
-                VStack(spacing: 10) {
-                    Image(systemName: icon)
-                        .font(.system(size: 35))
-                    
-                    Text(title)
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .multilineTextAlignment(.center)
-                    
-                    if let sub = subtitle {
-                        Text(sub)
-                            .font(.system(size: 10))
-                            .fontWeight(.black)
-                            .padding(4)
-                            .background(Color.white.opacity(0.3))
-                            .cornerRadius(4)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(isSelected ? color : color.opacity(0.15))
-                .foregroundColor(isSelected ? .white : color)
-                .cornerRadius(15)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 15)
-                        .stroke(color, lineWidth: isSelected ? 3 : 1)
-                )
-                .scaleEffect(isSelected ? 1.05 : 1.0)
-                .animation(.spring(), value: isSelected)
-            }
-        }
-    }
-    
-    struct CustomPinPad: View {
-        @Binding var code: String
-        var onCommit: () -> Void
-        
-        let columns = [
-            GridItem(.fixed(80), spacing: 15),
-            GridItem(.fixed(80), spacing: 15),
-            GridItem(.fixed(80), spacing: 15)
-        ]
-        
-        var body: some View {
-            LazyVGrid(columns: columns, spacing: 15) {
-                ForEach(1...9, id: \.self) { num in
-                    PinButton(label: "\(num)") {
-                        if code.count < 4 { code.append("\(num)") }
-                    }
-                }
-                
-                PinButton(label: "⌫", color: .red.opacity(0.1), textColor: .red) {
-                    if !code.isEmpty { code.removeLast() }
-                }
-                
-                PinButton(label: "0") {
-                    if code.count < 4 { code.append("0") }
-                }
-                
-                PinButton(label: "OK", color: .green, textColor: .white) {
-                    onCommit()
-                }
-            }
-        }
-    }
-    
-    struct PinButton: View {
-        let label: String
-        var color: Color = Color.gray.opacity(0.1)
-        var textColor: Color = .primary
-        let action: () -> Void
-        
-        var body: some View {
-            Button(action: action) {
-                Text(label)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .frame(width: 80, height: 60) // Adjusted size for landscape iPad
-                    .background(color)
-                    .foregroundColor(textColor)
-                    .cornerRadius(12)
-            }
-        }
-    }
-    
-    struct UnlockView: View {
-        @ObservedObject var viewModel: WorkerViewModel
-        @Binding var isPresented: Bool
-        @State private var inputCode = ""
-        @State private var showError = false
-        
-        var body: some View {
-            VStack(spacing: 30) {
-                Spacer()
-                
-                Text("⚠️ LOCKED ⚠️")
-                    .font(.system(size: 40, weight: .black))
-                    .foregroundColor(.red)
-                
-                Text(unlockMessage)
-                    .font(.title2)
-                    .foregroundColor(.gray)
-                
-                // Dot Indicators
-                HStack(spacing: 20) {
-                    ForEach(0..<4) { index in
-                        Circle()
-                            .stroke(Color.gray, lineWidth: 2)
-                            .background(Circle().fill(inputCode.count > index ? Color.black : Color.clear))
-                            .frame(width: 20, height: 20)
-                    }
-                }
-                .padding(.vertical, 10)
-                
-                if showError {
-                    Text("INCORRECT CODE")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(Color.red)
-                        .cornerRadius(8)
-                } else {
-                    Text(" ").padding() // Spacer
-                }
-                
-                // Reuse your existing CustomPinPad
-                CustomPinPad(code: $inputCode, onCommit: attemptUnlock)
-                    .frame(maxWidth: 500)
-                
-                Button("Cancel") {
-                    isPresented = false
-                }
-                .font(.title3)
-                .padding(.top, 20)
-                .foregroundColor(.blue)
-                
-                Spacer()
-            }
-            .background(Color(UIColor.systemGroupedBackground))
-            .edgesIgnoringSafeArea(.all)
-        }
-        
-        var unlockMessage: String {
-            switch viewModel.pauseState {
-            case .qcCrew: return "QC Oversight - Enter QC Code"
-            case .qcComponent: return "Component Issue - Enter QC Code"
-            case .technician: return "Machine Issue - Enter Tech Code"
-            default: return "Enter Admin Code"
-            }
-        }
-        
-        func attemptUnlock() {
-            var success = false
-            if viewModel.pauseState == .technician {
-                success = viewModel.toggleTechPause(code: inputCode)
-            } else {
-                success = viewModel.toggleQCPause(type: viewModel.pauseState, code: inputCode)
-            }
-            
-            if success {
-                isPresented = false
-            } else {
-                showError = true
-                inputCode = ""
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.error)
-            }
-        }
-    }
-}
-*/

@@ -236,7 +236,7 @@ extension ContentView {
     // on the returned ScanFeedback and clears the input field.
     // In ContentView+Helpers.swift
 
-        func handleRFIDSubmit() {
+    func handleRFIDSubmit() {
             // Capture input and clear field immediately so UI feels responsive
             let scannedId = rfidInput
             rfidInput = ""
@@ -262,10 +262,14 @@ extension ContentView {
                         self.showBanner(message: "Scan Ignored: Project is Finished", type: .warning)
                         
                     case .alreadyActive(let fleetId):
-                        // NEW ALERT
                         self.showBanner(message: "BLOCKED: Worker active on \(fleetId)", type: .error)
-                        AudioPlayerManager.shared.playSound(named: "Buzzer") // Optional: Play error sound
+                        AudioPlayerManager.shared.playSound(named: "Buzzer")
+                        
+                    case .invalidScan(let reason): // <--- NEW CASE
+                        self.showBanner(message: "Scan Rejected: \(reason)", type: .error)
+                        AudioPlayerManager.shared.playSound(named: "Buzzer")
                     }
                 }
             }
-        }}
+        }
+    }
