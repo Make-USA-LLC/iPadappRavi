@@ -532,7 +532,8 @@ extension ContentView {
                             Text(viewModel.techIssueLine.isEmpty ? "MACHINE MALFUNCTION" : viewModel.techIssueLine)
                                 .font(.title)
                                 .multilineTextAlignment(.center)
-                            Button("RESUME") { viewModel.resumeTimer() }
+                            // --- CHANGED: Using the correct toggle function to trigger reporting logic ---
+                            Button("RESUME") { _ = viewModel.toggleTechPause(code: viewModel.techCode) }
                                 .font(.title).bold().padding().background(Color.green).foregroundColor(.white).cornerRadius(10)
                         }
                         .frame(maxWidth: .infinity, maxHeight: 180)

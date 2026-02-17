@@ -21,7 +21,7 @@ class WorkerViewModel: ObservableObject {
     
     // --- Cloud Sync Throttle ---
     private var lastCloudPushTime: Date = Date.distantPast
-    private let cloudPushInterval: TimeInterval = 5.0
+    private let cloudPushInterval: TimeInterval = 600.0
     
     @Published var triggerQueueItem: ProjectQueueItem? = nil
     
@@ -345,55 +345,113 @@ class WorkerViewModel: ObservableObject {
     }
     
     func toggleQCPause(type: PauseType, code: String) -> Bool {
-            guard code == qcCode || code == "REMOTE_OVERRIDE" else { return false }
+        guard code == qcCode || code == "REMOTE_OVERRIDE" else { return false }
+        
+        // CASE: RESUMING (Unpausing)
+        if isPaused && pauseState == type {
             
-            if isPaused && pauseState == type {
-                pauseState = .running
-                resumeTimer()
-                return true
+            // --- NEW: Calculate Duration & Save Report ---
+            // 1. Find the event that started this pause
+            if let lastEvent = projectEvents.last {
+                let isCorrectStartEvent = (type == .qcCrew && lastEvent.type == .qcCrew) ||
+                                          (type == .qcComponent && lastEvent.type == .qcComponent)
+                
+                if isCorrectStartEvent {
+                    let endTime = Date()
+                    let duration = endTime.timeIntervalSince(lastEvent.timestamp)
+                    
+                    let report: [String: Any] = [
+                        "type": type == .qcCrew ? "QC (Crew)" : "QC (Component)",
+                        "company": companyName,
+                        "project": projectName,
+                        "leader": lineLeaderName,
+                        "category": category,
+                        "size": projectSize,
+                        "startTime": lastEvent.timestamp,
+                        "endTime": endTime,
+                        "durationSeconds": Int(duration),
+                        "timestamp": FieldValue.serverTimestamp() // For sorting
+                    ]
+                    
+                    FirebaseManager.shared.saveIssueReport(report)
+                }
             }
+            // ---------------------------------------------
             
-            isPaused = true
-            pauseState = type
-            if type == .qcCrew {
-                isBonusEligible = false
-                bonusIneligibleReason = "QC Pause: Crew Oversight"
-            }
-            
-            // --- CHANGED: Log specific QC type ---
-            let eventType: ProjectEventType = (type == .qcCrew) ? .qcCrew : .qcComponent
-            projectEvents.append(ProjectEvent(timestamp: Date(), type: eventType))
-            // -------------------------------------
-            
-            saveState()
-            pushStateToCloud(force: true)
+            pauseState = .running
+            resumeTimer()
             return true
         }
+        
+        // CASE: PAUSING
+        isPaused = true
+        pauseState = type
+        if type == .qcCrew {
+            isBonusEligible = false
+            bonusIneligibleReason = "QC Pause: Crew Oversight"
+        }
+        
+        // Log specific QC type
+        let eventType: ProjectEventType = (type == .qcCrew) ? .qcCrew : .qcComponent
+        projectEvents.append(ProjectEvent(timestamp: Date(), type: eventType))
+        
+        saveState()
+        pushStateToCloud(force: true)
+        return true
+    }
 
     func toggleTechPause(code: String, line: String? = nil) -> Bool {
-            guard code == techCode || code == "REMOTE_OVERRIDE" else { return false }
+        guard code == techCode || code == "REMOTE_OVERRIDE" else { return false }
+        
+        // CASE: RESUMING (Unpausing)
+        if isPaused && pauseState == .technician {
             
-            if isPaused && pauseState == .technician {
-                resumeTimer()
-                return true
+            // --- NEW: Calculate Duration & Save Report ---
+            if let lastEvent = projectEvents.last, lastEvent.type == .technician {
+                let endTime = Date()
+                let duration = endTime.timeIntervalSince(lastEvent.timestamp)
+                
+                // Use the techIssueLine we stored when the pause started,
+                // or fall back to the value in the event log if needed.
+                let machineName = !techIssueLine.isEmpty ? techIssueLine : (lastEvent.value ?? "Unknown")
+                
+                let report: [String: Any] = [
+                    "type": "Technician",
+                    "company": companyName,
+                    "project": projectName,
+                    "leader": lineLeaderName,
+                    "category": category,
+                    "size": projectSize,
+                    "machine": machineName,
+                    "startTime": lastEvent.timestamp,
+                    "endTime": endTime,
+                    "durationSeconds": Int(duration),
+                    "timestamp": FieldValue.serverTimestamp()
+                ]
+                
+                FirebaseManager.shared.saveIssueReport(report)
             }
-            
-            isPaused = true
-            pauseState = .technician
-            
-            // Update the transient state for the UI
-            if let l = line {
-                self.techIssueLine = l
-            }
-            
-            // --- CHANGED: Store the line name in the event history ---
-            projectEvents.append(ProjectEvent(timestamp: Date(), type: .technician, value: line))
-            // ---------------------------------------------------------
-            
-            saveState()
-            pushStateToCloud(force: true)
+            // ---------------------------------------------
+
+            resumeTimer()
             return true
         }
+        
+        // CASE: PAUSING
+        isPaused = true
+        pauseState = .technician
+        
+        if let l = line {
+            self.techIssueLine = l
+        }
+        
+        // Store the line name in the event history
+        projectEvents.append(ProjectEvent(timestamp: Date(), type: .technician, value: line))
+        
+        saveState()
+        pushStateToCloud(force: true)
+        return true
+    }
     
     private func startTimer() {
         guard !isProjectFinished else { return }
@@ -575,7 +633,7 @@ class WorkerViewModel: ObservableObject {
         timerText = String(format: "%@%02d:%02d:%02d", prefix, hours, minutes, seconds)
         
         saveState()
-        //pushStateToCloud(force: false)
+        pushStateToCloud(force: false)
     }
     
     func resetTimer(hours: Int, minutes: Int, seconds: Int) {

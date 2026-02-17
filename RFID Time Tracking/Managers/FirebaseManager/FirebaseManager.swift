@@ -146,6 +146,11 @@ final class FirebaseManager {
     func saveMachineSetupReport(_ report: [String: Any]) {
         db.collection("machine_setup_reports").addDocument(data: report)
     }
+    
+    // --- NEW: Save Issue Report (Tech/QC Duration) ---
+    func saveIssueReport(_ report: [String: Any]) {
+        db.collection("issue_reports").addDocument(data: report)
+    }
 
     // MARK: - CLEANUP
     func disconnectFleet() {
