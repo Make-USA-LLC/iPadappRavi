@@ -67,7 +67,7 @@ struct EditHoursView: View {
     }
 }
 
-// --- UPDATED VIEW WITH FIXED INTERACTION ---
+// --- UPDATED VIEW WITH ADD/SUBTRACT ADJUSTMENT ---
 struct EditWorkerTimeView: View {
     @EnvironmentObject var viewModel: WorkerViewModel
     @Environment(\.presentationMode) var presentationMode
@@ -76,6 +76,9 @@ struct EditWorkerTimeView: View {
     
     @State private var hoursStr: String = ""
     @State private var minutesStr: String = ""
+    
+    // NEW: Toggle for Add/Subtract
+    @State private var isSubtracting: Bool = false
     
     // Custom Keyboard State
     @State private var showingNumpad = false
@@ -91,7 +94,16 @@ struct EditWorkerTimeView: View {
                 
                 // 1. The Form (Content)
                 Form {
-                    Section(header: Text("Edit Total Hours")) {
+                    Section(header: Text("Adjust Hours By (Use 0 if no change)")) {
+                        
+                        // NEW: Add / Subtract Toggle
+                        Picker("Adjustment Type", selection: $isSubtracting) {
+                            Text("Add Time (+)").tag(false)
+                            Text("Subtract Time (-)").tag(true)
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        .padding(.vertical, 5)
+
                         // HOURS FIELD
                         Button(action: {
                             activeField = .hours
@@ -128,10 +140,9 @@ struct EditWorkerTimeView: View {
                             saveChanges()
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .foregroundColor(.red)
+                        .foregroundColor(isSubtracting ? .orange : .blue)
                     }
                 }
-                // REMOVED: .disabled(showingNumpad) <--- This was causing the issue
                 
                 // 2. Invisible Overlay to Dismiss (Only when keyboard is up)
                 if showingNumpad {
@@ -177,20 +188,38 @@ struct EditWorkerTimeView: View {
     }
     
     func loadData() {
-        if let w = viewModel.workers[workerID] {
-            let total = w.totalMinutesWorked
-            let h = Int(total / 60)
-            let m = Int(total.truncatingRemainder(dividingBy: 60))
-            hoursStr = "\(h)"
-            minutesStr = "\(m)"
-        }
+        // ALWAYS start at 0 for adjustments
+        hoursStr = "0"
+        minutesStr = "0"
     }
     
     func saveChanges() {
         let h = Double(hoursStr) ?? 0
         let m = Double(minutesStr) ?? 0
-        let total = (h * 60) + m
-        viewModel.updateWorkerTotalTime(id: workerID, newTotalMinutes: total)
+        var adjustmentMinutes = (h * 60) + m
+        
+        if adjustmentMinutes == 0 {
+            presentationMode.wrappedValue.dismiss()
+            return
+        }
+        
+        // Apply negative sign if subtracting
+        if isSubtracting {
+            adjustmentMinutes = -adjustmentMinutes
+        }
+        
+        if let currentWorker = viewModel.workers[workerID] {
+            let currentTotal = currentWorker.totalMinutesWorked
+            
+            // Note: We deliberately allow this to go negative.
+            // If the iPad mistakenly thinks they are at 0 because of a queue reload,
+            // and they want to subtract 60 mins, we allow currentTotal to become -60.
+            // This ensures the main timer difference calculation perfectly adds that time back.
+            let newTotal = currentTotal + adjustmentMinutes
+            
+            viewModel.updateWorkerTotalTime(id: workerID, newTotalMinutes: newTotal)
+        }
+        
         presentationMode.wrappedValue.dismiss()
     }
 }

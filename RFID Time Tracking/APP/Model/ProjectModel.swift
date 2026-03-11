@@ -22,6 +22,9 @@ struct ProjectQueueItem: Codable, Identifiable, Equatable {
     var scanHistory: [ScanEvent]?
     var projectEvents: [ProjectEvent]?
     
+    // 🚨 REQUIRED TO PREVENT EDITS FROM BEING DELETED 🚨
+    var workerBankedMinutes: [String: Double]?
+    
     var isBonusEligible: Bool?
     var bonusIneligibleReason: String?
     
@@ -41,11 +44,9 @@ struct ProjectEvent: Codable, Identifiable {
     let id = UUID()
     let timestamp: Date
     let type: ProjectEventType
-    // --- FIX: Add this property ---
     var value: String?
     
     private enum CodingKeys: String, CodingKey {
-        // --- FIX: You MUST include 'value' here ---
         case timestamp, type, value
     }
 }

@@ -248,7 +248,6 @@ class WorkerViewModel: ObservableObject {
                 clockOut(for: id)
             }
             
-        // --- UPDATED: ROBUST EDIT PARSING ---
         case "EDIT_WORKER":
             if parts.count > 2 {
                 let rawId = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -257,7 +256,6 @@ class WorkerViewModel: ObservableObject {
                     updateWorkerTotalTime(id: rawId, newTotalMinutes: minutes)
                 }
             }
-        // ------------------------------------
             
         case "CANCEL_BONUS":
             cancelBonus()
@@ -269,14 +267,11 @@ class WorkerViewModel: ObservableObject {
             _ = toggleQCPause(type: .qcComponent, code: "REMOTE_OVERRIDE")
             
         case "TECH_PAUSE":
-            // 1. Check if there is a line name attached (e.g., "TECH_PAUSE|Line 1")
-                        var lineParam: String? = nil
-                        if parts.count > 1 {
-                            lineParam = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                        
-                        // 2. Pass the line to the toggle function
-                        _ = toggleTechPause(code: "REMOTE_OVERRIDE", line: lineParam)
+            var lineParam: String? = nil
+            if parts.count > 1 {
+                lineParam = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            _ = toggleTechPause(code: "REMOTE_OVERRIDE", line: lineParam)
 
         default: break
         }
@@ -350,8 +345,6 @@ class WorkerViewModel: ObservableObject {
         // CASE: RESUMING (Unpausing)
         if isPaused && pauseState == type {
             
-            // --- NEW: Calculate Duration & Save Report ---
-            // 1. Find the event that started this pause
             if let lastEvent = projectEvents.last {
                 let isCorrectStartEvent = (type == .qcCrew && lastEvent.type == .qcCrew) ||
                                           (type == .qcComponent && lastEvent.type == .qcComponent)
@@ -376,7 +369,6 @@ class WorkerViewModel: ObservableObject {
                     FirebaseManager.shared.saveIssueReport(report)
                 }
             }
-            // ---------------------------------------------
             
             pauseState = .running
             resumeTimer()
@@ -391,7 +383,6 @@ class WorkerViewModel: ObservableObject {
             bonusIneligibleReason = "QC Pause: Crew Oversight"
         }
         
-        // Log specific QC type
         let eventType: ProjectEventType = (type == .qcCrew) ? .qcCrew : .qcComponent
         projectEvents.append(ProjectEvent(timestamp: Date(), type: eventType))
         
@@ -406,13 +397,10 @@ class WorkerViewModel: ObservableObject {
         // CASE: RESUMING (Unpausing)
         if isPaused && pauseState == .technician {
             
-            // --- NEW: Calculate Duration & Save Report ---
             if let lastEvent = projectEvents.last, lastEvent.type == .technician {
                 let endTime = Date()
                 let duration = endTime.timeIntervalSince(lastEvent.timestamp)
                 
-                // Use the techIssueLine we stored when the pause started,
-                // or fall back to the value in the event log if needed.
                 let machineName = !techIssueLine.isEmpty ? techIssueLine : (lastEvent.value ?? "Unknown")
                 
                 let report: [String: Any] = [
@@ -431,7 +419,6 @@ class WorkerViewModel: ObservableObject {
                 
                 FirebaseManager.shared.saveIssueReport(report)
             }
-            // ---------------------------------------------
 
             resumeTimer()
             return true
@@ -445,7 +432,6 @@ class WorkerViewModel: ObservableObject {
             self.techIssueLine = l
         }
         
-        // Store the line name in the event history
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .technician, value: line))
         
         saveState()
@@ -651,27 +637,22 @@ class WorkerViewModel: ObservableObject {
         pushStateToCloud(force: true)
     }
     
-    // --- NEW: Start Machine Setup (Count Up) ---
     func startMachineSetup(line: String, project: ProjectQueueItem) {
-        // Reset state first
         self.resetData()
         
-        // Populate info from Queue
         self.companyName = project.company
         self.projectName = project.project
         self.category = project.category
         self.projectSize = project.size
         
-        // Use line name as leader name for visibility, or keep it distinct if preferred
         self.lineLeaderName = "Setup: \(line)"
         self.pendingQueueIdToDelete = project.id
         
-        // Initialize Timer
         self.countdownSeconds = 0
         self.originalCountdownSeconds = 0
         self.isCountUp = true
         self.isCountingDown = true
-        self.isPaused = false // Automatically start, but waits for 1 scan (tech)
+        self.isPaused = false
         
         self.startTimer()
         self.saveState()
@@ -681,8 +662,6 @@ class WorkerViewModel: ObservableObject {
     func resumeTimer() {
         guard !isProjectFinished else { return }
         
-        // --- PREVENT UNAUTHORIZED RESUME ---
-        // QC Pauses must be unpaused via the specific toggle functions (with code)
         if pauseState == .qcCrew || pauseState == .qcComponent { return }
         
         isPaused = false
@@ -694,97 +673,83 @@ class WorkerViewModel: ObservableObject {
         pushStateToCloud(force: true)
     }
     
-    // In WorkerViewModel.swift
-
-    // NOTE: We changed the return type to Void and added a completion handler
     func handleRFIDScan(for rawId: String, completion: @escaping (ScanFeedback?) -> Void) {
             
-            // --- 1. SANITIZE & VALIDATE ---
-            // Firebase Document IDs cannot be empty, contain forward slashes, be . or .., or match __.*__
-            let cleanedId = rawId.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            guard !cleanedId.isEmpty else {
-                print("⚠️ BLOCKED: Empty scan.")
-                completion(.invalidScan("Scan cannot be empty")) // <--- CHANGED
-                return
-            }
-            
-            guard !cleanedId.contains("/") else {
-                print("⚠️ BLOCKED: Scan contains illegal character '/'.")
-                completion(.invalidScan("Scan contains illegal character '/'")) // <--- CHANGED
-                return
-            }
-            
-            guard cleanedId != "." && cleanedId != ".." else {
-                print("⚠️ BLOCKED: Scan is illegal reserved name.")
-                completion(.invalidScan("Reserved Name Violation")) // <--- CHANGED
-                return
-            }
-            
-            guard !(cleanedId.hasPrefix("__") && cleanedId.hasSuffix("__")) else {
-                 print("⚠️ BLOCKED: Scan matches reserved pattern.")
-                 completion(.invalidScan("Reserved Pattern Violation")) // <--- CHANGED
-                 return
-            }
-            
-            let id = cleanedId
-            
-            // --- 2. EXISTING LOGIC ---
-            guard !isProjectFinished, !isPaused else {
-                if isProjectFinished { completion(.ignoredFinished) }
-                else if isPaused { completion(.ignoredPaused) }
-                return
-            }
+        let cleanedId = rawId.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !cleanedId.isEmpty else {
+            print("⚠️ BLOCKED: Empty scan.")
+            completion(.invalidScan("Scan cannot be empty"))
+            return
+        }
+        
+        guard !cleanedId.contains("/") else {
+            print("⚠️ BLOCKED: Scan contains illegal character '/'.")
+            completion(.invalidScan("Scan contains illegal character '/'"))
+            return
+        }
+        
+        guard cleanedId != "." && cleanedId != ".." else {
+            print("⚠️ BLOCKED: Scan is illegal reserved name.")
+            completion(.invalidScan("Reserved Name Violation"))
+            return
+        }
+        
+        guard !(cleanedId.hasPrefix("__") && cleanedId.hasSuffix("__")) else {
+             print("⚠️ BLOCKED: Scan matches reserved pattern.")
+             completion(.invalidScan("Reserved Pattern Violation"))
+             return
+        }
+        
+        let id = cleanedId
+        
+        guard !isProjectFinished, !isPaused else {
+            if isProjectFinished { completion(.ignoredFinished) }
+            else if isPaused { completion(.ignoredPaused) }
+            return
+        }
 
-            // Check local state first
-            let isClockingOut = workers[id]?.clockInTime != nil
+        let isClockingOut = workers[id]?.clockInTime != nil
+        
+        if isClockingOut {
+            scanCount += 1
+            scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockOut))
+            clockOut(for: id)
+            completion(.clockedOut(id))
             
-            if isClockingOut {
-                // CLOCK OUT: Always allow immediately (no network check needed to leave)
-                scanCount += 1
-                scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockOut))
-                clockOut(for: id)
-                completion(.clockedOut(id))
+        } else {
+            FirebaseManager.shared.checkGlobalWorkerStatus(workerId: id) { [weak self] busyFleetId in
+                guard let self = self else { return }
                 
-            } else {
-                // CLOCK IN: Check Global Status first
-                FirebaseManager.shared.checkGlobalWorkerStatus(workerId: id) { [weak self] busyFleetId in
-                    guard let self = self else { return }
-                    
-                    if let busyFleetId = busyFleetId {
-                        if busyFleetId == self.fleetIpadID {
-                            self.performClockIn(id: id, completion: completion)
-                        } else {
-                            completion(.alreadyActive(busyFleetId))
-                        }
-                    } else {
+                if let busyFleetId = busyFleetId {
+                    if busyFleetId == self.fleetIpadID {
                         self.performClockIn(id: id, completion: completion)
+                    } else {
+                        completion(.alreadyActive(busyFleetId))
                     }
+                } else {
+                    self.performClockIn(id: id, completion: completion)
                 }
             }
         }
+    }
 
-    // Helper to avoid duplicate code above
     private func performClockIn(id: String, completion: @escaping (ScanFeedback?) -> Void) {
         scanCount += 1
         scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockIn))
         clockIn(for: id)
         completion(.clockedIn(id))
     }
-    
-    // Inside WorkerViewModel
 
     func fetchLines() {
         print("🔍 STARTING FETCH: Attempting to fetch from collection 'lines'...")
         
         db.collection("lines").addSnapshotListener { [weak self] snapshot, error in
-            // 1. Check for basic connection errors
             if let error = error {
                 print("❌ CRITICAL ERROR: Could not fetch lines. Reason: \(error.localizedDescription)")
                 return
             }
             
-            // 2. Check if snapshot exists and is empty
             guard let documents = snapshot?.documents else {
                 print("⚠️ WARNING: Snapshot is nil (No data found).")
                 return
@@ -792,12 +757,10 @@ class WorkerViewModel: ObservableObject {
             
             print("✅ CONNECTION SUCCESS: Found \(documents.count) documents in 'lines'.")
             
-            // 3. Check the actual data inside
             for doc in documents {
                 print("   - Doc ID: \(doc.documentID), Data: \(doc.data())")
             }
             
-            // 4. Attempt mapping
             let lines = documents.compactMap { doc -> String? in
                 let name = doc.data()["name"] as? String
                 if name == nil {
@@ -813,9 +776,6 @@ class WorkerViewModel: ObservableObject {
             }
         }
     }
-    
-    
-    // In WorkerViewModel.swift -> clockIn(for id: String)
 
     func clockIn(for id: String) {
         var worker = workers[id] ?? Worker(id: id, clockInTime: nil, totalMinutesWorked: 0)
@@ -824,12 +784,9 @@ class WorkerViewModel: ObservableObject {
             workers[id] = worker
             recalcTotalPeopleWorking()
             
-            // --- UPDATED: Always Lock, even if FleetID is missing ---
-            // Use the custom ID, or fallback to the Device Name, or a UUID
             let lockID = !fleetIpadID.isEmpty ? fleetIpadID : (UIDevice.current.name)
             
             FirebaseManager.shared.setGlobalWorkerActive(workerId: id, fleetId: lockID)
-            // ---------------------------------------------------------
 
             saveState()
             pushStateToCloud(force: true)
@@ -837,7 +794,7 @@ class WorkerViewModel: ObservableObject {
     }
     
     func clockOut(for id: String) {
-            guard var worker = workers[id], let clockInTime = worker.clockInTime else { return }
+        guard var worker = workers[id], let clockInTime = worker.clockInTime else { return }
         if scanHistory.last?.cardID != id {
             scanHistory.append(ScanEvent(cardID: id, timestamp: Date(), action: .clockOut))
             scanCount += 1
@@ -881,7 +838,7 @@ class WorkerViewModel: ObservableObject {
         originalCountdownSeconds = 0
         isBonusEligible = true
         bonusIneligibleReason = ""
-        isCountUp = false // Reset mode
+        isCountUp = false
         saveState()
         pushStateToCloud(force: true)
     }
@@ -890,6 +847,8 @@ class WorkerViewModel: ObservableObject {
         guard !projectName.isEmpty, !companyName.isEmpty else { return }
         
         let now = Date()
+        var banked: [String: Double] = [:] // 🚨 Capture exact totals
+        
         for id in workers.keys {
             if workers[id]?.clockInTime != nil {
                 if let clockInTime = workers[id]?.clockInTime {
@@ -900,31 +859,46 @@ class WorkerViewModel: ObservableObject {
                 scanCount += 1
                 FirebaseManager.shared.setGlobalWorkerInactive(workerId: id)
             }
+            
+            // 🚨 Save the exact math including dashboard adjustments
+            if let total = workers[id]?.totalMinutesWorked {
+                banked[id] = total
+            }
         }
         totalPeopleWorking = 0
         projectEvents.append(ProjectEvent(timestamp: Date(), type: .save))
         
-        let item = ProjectQueueItem(
-                company: companyName,
-                project: projectName,
-                category: category,
-                size: projectSize,
-                seconds: countdownSeconds,
-                originalSeconds: originalCountdownSeconds,
-                lineLeaderName: lineLeaderName,
-                createdAt: Date(),
-                scanHistory: scanHistory,
-                projectEvents: projectEvents,
-                isBonusEligible: isBonusEligible,
-                bonusIneligibleReason: bonusIneligibleReason
-            )
+        // 🚨 BULLETPROOF DICTIONARY SAVE 🚨
+        let itemData: [String: Any] = [
+            "company": companyName,
+            "project": projectName,
+            "category": category,
+            "size": projectSize,
+            "seconds": countdownSeconds,
+            "originalSeconds": originalCountdownSeconds,
+            "lineLeaderName": lineLeaderName,
+            "createdAt": FieldValue.serverTimestamp(),
+            "scanHistory": scanHistory.map { [
+                "cardID": $0.cardID,
+                "action": $0.action.rawValue,
+                "timestamp": $0.timestamp
+            ] },
+            "projectEvents": projectEvents.map { [
+                "type": $0.type.rawValue,
+                "timestamp": $0.timestamp,
+                "value": $0.value ?? ""
+            ] },
+            "workerBankedMinutes": banked, // 🚨 GUARANTEED TO SAVE
+            "isBonusEligible": isBonusEligible,
+            "bonusIneligibleReason": bonusIneligibleReason
+        ]
         
-        do {
-            try db.collection("project_queue").addDocument(from: item)
-            resetData()
-        } catch {
-            print("Error saving to queue: \(error)")
+        db.collection("project_queue").addDocument(data: itemData) { error in
+            if let e = error {
+                print("Error saving to queue: \(e)")
+            }
         }
+        resetData()
     }
     
     public func saveState() {
@@ -953,7 +927,6 @@ class WorkerViewModel: ObservableObject {
         storage.save(bonusIneligibleReason, forKey: "bonusIneligibleReason")
         storage.save(lastCommandTimestamp ?? Date(), forKey: "lastCommandTimestamp")
         storage.save(isCountUp, forKey: "isCountUp")
-        
     }
 
     private func loadState() {
@@ -989,7 +962,6 @@ class WorkerViewModel: ObservableObject {
         }
     }
     
-    // --- (Keeping existing fetch methods) ---
     func fetchWorkerNames() { FirebaseManager.shared.listenToWorkers { [weak self] in self?.workerNameCache = $0 } }
     func fetchProjectQueue() { FirebaseManager.shared.listenToProjectQueue { [weak self] in self?.projectQueue = $0 } }
     func fetchDropdownOptions() { FirebaseManager.shared.listenToProjectOptions { [weak self] c, s in self?.availableCategories = c; self?.availableSizes = s } }
@@ -1034,6 +1006,31 @@ class WorkerViewModel: ObservableObject {
                 
                 if logsUpdated { self.reconstructStateFromLogs() }
                 
+                // 🚨 ADD THIS: Force the iPad to overwrite the raw logs with your manual edits
+                if let banked = data["workerBankedMinutes"] as? [String: Any] {
+                    for (id, val) in banked {
+                        let mins: Double
+                        if let d = val as? Double {
+                            mins = d
+                        } else if let i = val as? Int {
+                            mins = Double(i)
+                        } else if let n = val as? NSNumber {
+                            mins = n.doubleValue
+                        } else {
+                            continue
+                        }
+                        
+                        if var worker = self.workers[id] {
+                            worker.totalMinutesWorked = mins
+                            self.workers[id] = worker
+                        } else {
+                            self.workers[id] = Worker(id: id, clockInTime: nil, totalMinutesWorked: mins)
+                        }
+                    }
+                    self.recalcTotalPeopleWorking()
+                }
+                // ------------------------------------------------------------------------
+                
                 if let cmd = data["remoteCommand"] as? String, let stamp = (data["commandTimestamp"] as? Timestamp)?.dateValue() {
                     if self.lastCommandTimestamp == nil || stamp > self.lastCommandTimestamp! {
                         self.lastCommandTimestamp = stamp
@@ -1069,82 +1066,79 @@ class WorkerViewModel: ObservableObject {
     
     // --- UPDATED PUSH LOGIC ---
     func pushStateToCloud(force: Bool = false) {
-            guard !fleetIpadID.isEmpty else { return }
-            
-            let now = Date()
-            if !force {
-                if now.timeIntervalSince(lastCloudPushTime) < cloudPushInterval { return }
-            }
-            lastCloudPushTime = now
-
-            let activeWorkerIDs = workers.values.filter { $0.clockInTime != nil }.map { $0.id }
-            var workerBankedMinutes: [String: Double] = [:]
-                    for worker in workers.values {
-                        workerBankedMinutes[worker.id] = worker.totalMinutesWorked
-                    }
-
-            var payload: [String: Any] = [
-                "isPaused": isPaused,
-                "secondsRemaining": countdownSeconds,
-                "lastUpdateTime": FieldValue.serverTimestamp(),
-                "activeWorkers": activeWorkerIDs,
-                "workerBankedMinutes": workerBankedMinutes,
-                "timerText": timerText,
-                "workerCount": totalPeopleWorking,
-                "companyName": companyName,
-                "projectName": projectName,
-                "lineLeaderName": lineLeaderName,
-                "category": category,
-                "projectSize": projectSize,
-                "isBonusEligible": isBonusEligible,
-                "bonusIneligibleReason": bonusIneligibleReason,
-                "techIssueLine": techIssueLine, // <--- ADD THIS
-                "isCountUp": isCountUp, // <--- ADD THIS
-                "scanHistory": scanHistory.map { ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp] },
-                "projectEvents": projectEvents.map { ["type": $0.type.rawValue, "timestamp": $0.timestamp] }
-            ]
-            
-            if originalCountdownSeconds > 0 {
-                if companyName.isEmpty { payload.removeValue(forKey: "companyName") }
-                if projectName.isEmpty { payload.removeValue(forKey: "projectName") }
-                if lineLeaderName.isEmpty { payload.removeValue(forKey: "lineLeaderName") }
-            }
-            
-            FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: payload)
+        guard !fleetIpadID.isEmpty else { return }
+        
+        let now = Date()
+        if !force {
+            if now.timeIntervalSince(lastCloudPushTime) < cloudPushInterval { return }
         }
+        lastCloudPushTime = now
+
+        let activeWorkerIDs = workers.values.filter { $0.clockInTime != nil }.map { $0.id }
+        var workerBankedMinutes: [String: Double] = [:]
+        for worker in workers.values {
+            workerBankedMinutes[worker.id] = worker.totalMinutesWorked
+        }
+
+        var payload: [String: Any] = [
+            "isPaused": isPaused,
+            "secondsRemaining": countdownSeconds,
+            "lastUpdateTime": FieldValue.serverTimestamp(),
+            "activeWorkers": activeWorkerIDs,
+            "workerBankedMinutes": workerBankedMinutes,
+            "timerText": timerText,
+            "workerCount": totalPeopleWorking,
+            "companyName": companyName,
+            "projectName": projectName,
+            "lineLeaderName": lineLeaderName,
+            "category": category,
+            "projectSize": projectSize,
+            "isBonusEligible": isBonusEligible,
+            "bonusIneligibleReason": bonusIneligibleReason,
+            "techIssueLine": techIssueLine,
+            "isCountUp": isCountUp,
+            "scanHistory": scanHistory.map { ["cardID": $0.cardID, "action": $0.action.rawValue, "timestamp": $0.timestamp] },
+            "projectEvents": projectEvents.map { ["type": $0.type.rawValue, "timestamp": $0.timestamp] }
+        ]
+        
+        if originalCountdownSeconds > 0 {
+            if companyName.isEmpty { payload.removeValue(forKey: "companyName") }
+            if projectName.isEmpty { payload.removeValue(forKey: "projectName") }
+            if lineLeaderName.isEmpty { payload.removeValue(forKey: "lineLeaderName") }
+        }
+        
+        FirebaseManager.shared.pushFleetState(fleetId: fleetIpadID, data: payload)
+    }
     
     func saveFinalReportToFirestore() {
-            let workerLog = workers.values.map { ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked] }
+        let workerLog = workers.values.map { ["id": $0.id, "name": getWorkerName(id: $0.id), "minutes": $0.totalMinutesWorked] }
 
-            // --- SAFE MAPPING ---
-            // We convert the struct array into a Dictionary array [[String: Any]]
-            let eventLog = projectEvents.map { event -> [String: Any] in
-                return [
-                    "type": event.type.rawValue,
-                    "timestamp": event.timestamp,
-                    "value": event.value ?? "" // Handle nil values safely
-                ]
-            }
-            
-            let report: [String: Any] = [
-                "company": companyName,
-                "project": projectName,
-                "leader": lineLeaderName,
-                "category": category,
-                "size": projectSize,
-                
-                "originalSeconds": originalCountdownSeconds,
-                "finalSeconds": countdownSeconds,
-                
-                "workerLog": workerLog,
-                "eventLog": eventLog, // <--- Pass the mapped dictionary, NOT the struct array
-                
-                "completedAt": FieldValue.serverTimestamp(),
-                "bonusEligible": isBonusEligible,
-                "bonusIneligibleReason": isBonusEligible ? "" : (bonusIneligibleReason.isEmpty ? "One or More employees did not properly clock in" : bonusIneligibleReason)
+        let eventLog = projectEvents.map { event -> [String: Any] in
+            return [
+                "type": event.type.rawValue,
+                "timestamp": event.timestamp,
+                "value": event.value ?? ""
             ]
+        }
         
-        // --- LOGIC SWITCH FOR REPORT DESTINATION ---
+        let report: [String: Any] = [
+            "company": companyName,
+            "project": projectName,
+            "leader": lineLeaderName,
+            "category": category,
+            "size": projectSize,
+            
+            "originalSeconds": originalCountdownSeconds,
+            "finalSeconds": countdownSeconds,
+            
+            "workerLog": workerLog,
+            "eventLog": eventLog,
+            
+            "completedAt": FieldValue.serverTimestamp(),
+            "bonusEligible": isBonusEligible,
+            "bonusIneligibleReason": isBonusEligible ? "" : (bonusIneligibleReason.isEmpty ? "One or More employees did not properly clock in" : bonusIneligibleReason)
+        ]
+        
         if isCountUp {
             FirebaseManager.shared.saveMachineSetupReport(report)
         } else {
@@ -1152,46 +1146,37 @@ class WorkerViewModel: ObservableObject {
         }
     }
     
-    // MARK: - GLOBAL WORKER LOCK (Prevent Double Logins)
+    // MARK: - GLOBAL WORKER LOCK
+    func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
+        let docRef = db.collection("global_active_workers").document(workerId)
         
-        /// Checks if a worker is currently active on another device.
-        /// Returns the fleetId if active, or nil if free (or if the lock is expired).
-        func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
-            let docRef = db.collection("global_active_workers").document(workerId)
+        docRef.getDocument { snapshot, error in
+            guard let data = snapshot?.data(),
+                  let fleetId = data["fleetId"] as? String,
+                  let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() else {
+                completion(nil)
+                return
+            }
             
-            docRef.getDocument { snapshot, error in
-                guard let data = snapshot?.data(),
-                      let fleetId = data["fleetId"] as? String,
-                      let timestamp = (data["timestamp"] as? Timestamp)?.dateValue() else {
-                    // Document doesn't exist or is malformed -> Worker is FREE
-                    completion(nil)
-                    return
-                }
-                
-                // AUTOMATIC CLEANUP: If the lock is older than 12 hours, ignore it.
-                // This prevents workers from getting stuck if an iPad crashes/dies.
-                let twelveHours: TimeInterval = 12 * 60 * 60
-                if Date().timeIntervalSince(timestamp) > twelveHours {
-                    print("⚠️ Found expired lock for \(workerId). Treating as free.")
-                    completion(nil)
-                } else {
-                    // Worker is BUSY on fleetId
-                    completion(fleetId)
-                }
+            let twelveHours: TimeInterval = 12 * 60 * 60
+            if Date().timeIntervalSince(timestamp) > twelveHours {
+                print("⚠️ Found expired lock for \(workerId). Treating as free.")
+                completion(nil)
+            } else {
+                completion(fleetId)
             }
         }
+    }
 
-        /// Locks the worker to this specific iPad
-        func setGlobalWorkerActive(workerId: String, fleetId: String) {
-            let data: [String: Any] = [
-                "fleetId": fleetId,
-                "timestamp": FieldValue.serverTimestamp() // Server time for accuracy
-            ]
-            db.collection("global_active_workers").document(workerId).setData(data)
-        }
+    func setGlobalWorkerActive(workerId: String, fleetId: String) {
+        let data: [String: Any] = [
+            "fleetId": fleetId,
+            "timestamp": FieldValue.serverTimestamp()
+        ]
+        db.collection("global_active_workers").document(workerId).setData(data)
+    }
 
-        /// Unlocks the worker so they can sign in elsewhere
-        func setGlobalWorkerInactive(workerId: String) {
-            db.collection("global_active_workers").document(workerId).delete()
-        }
+    func setGlobalWorkerInactive(workerId: String) {
+        db.collection("global_active_workers").document(workerId).delete()
+    }
 }
