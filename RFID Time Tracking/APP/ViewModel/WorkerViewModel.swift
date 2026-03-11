@@ -898,6 +898,7 @@ class WorkerViewModel: ObservableObject {
                 }
                 scanHistory.append(ScanEvent(cardID: id, timestamp: now, action: .clockOut))
                 scanCount += 1
+                FirebaseManager.shared.setGlobalWorkerInactive(workerId: id)
             }
         }
         totalPeopleWorking = 0
@@ -1077,12 +1078,17 @@ class WorkerViewModel: ObservableObject {
             lastCloudPushTime = now
 
             let activeWorkerIDs = workers.values.filter { $0.clockInTime != nil }.map { $0.id }
+            var workerBankedMinutes: [String: Double] = [:]
+                    for worker in workers.values {
+                        workerBankedMinutes[worker.id] = worker.totalMinutesWorked
+                    }
 
             var payload: [String: Any] = [
                 "isPaused": isPaused,
                 "secondsRemaining": countdownSeconds,
                 "lastUpdateTime": FieldValue.serverTimestamp(),
                 "activeWorkers": activeWorkerIDs,
+                "workerBankedMinutes": workerBankedMinutes,
                 "timerText": timerText,
                 "workerCount": totalPeopleWorking,
                 "companyName": companyName,
