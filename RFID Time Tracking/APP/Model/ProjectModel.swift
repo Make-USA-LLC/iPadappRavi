@@ -22,16 +22,35 @@ struct ProjectQueueItem: Codable, Identifiable, Equatable {
     var scanHistory: [ScanEvent]?
     var projectEvents: [ProjectEvent]?
     
-    // 🚨 REQUIRED TO PREVENT EDITS FROM BEING DELETED 🚨
+    // Worker Bank
     var workerBankedMinutes: [String: Double]?
-    
     var isBonusEligible: Bool?
     var bonusIneligibleReason: String?
+    
+    // 🚨 WEB DASHBOARD FIELDS (Required so iPad doesn't delete them) 🚨
+    var price: String?
+    var quantity: String?
+    var notes: String?
+    var status: String?
+    var requiresBlending: Bool?
+    var blendingStatus: String?
+    var techSheetUploaded: Bool?
+    var componentsArrived: Bool?
+    
+    // 🚨 SCHEDULING COMMAND CENTER FIELDS 🚨
+    var startDate: String?
+    var workerCount: Int?
+    var estimatedTotalHours: Double?
+    var calculatedEndDate: String?
+    var durationDays: Int?
+    var shifts: Int?
     
     static func == (lhs: ProjectQueueItem, rhs: ProjectQueueItem) -> Bool {
         return lhs.id == rhs.id
     }
 }
+
+
 
 //MARK: ProjectOptionsConfig
 struct ProjectOptionsConfig: Codable {

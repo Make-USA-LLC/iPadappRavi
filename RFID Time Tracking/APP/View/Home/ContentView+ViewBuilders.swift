@@ -16,9 +16,9 @@ extension ContentView {
             
             if !viewModel.projectQueue.isEmpty {
                 Menu {
-                    ForEach(viewModel.projectQueue.sorted { $0.project < $1.project }) { job in
-                                        Button(action: {
-                                            viewModel.triggerQueueItem = job
+                    ForEach(viewModel.projectQueue) { job in
+                        Button(action: {
+                            viewModel.triggerQueueItem = job
                         }) {
                             Text("\(job.project) (\(job.company))")
                         }
