@@ -229,7 +229,7 @@ class WorkerViewModel: ObservableObject {
             _ = takeLunchBreak()
             
         case "SAVE":
-            saveJobToQueue()
+            endOfShiftSave()
             
         case "RESET":
             let cleanParts = command.split(separator: "|", omittingEmptySubsequences: true)
@@ -984,91 +984,205 @@ class WorkerViewModel: ObservableObject {
     func fetchDropdownOptions() { FirebaseManager.shared.listenToProjectOptions { [weak self] c, s in self?.availableCategories = c; self?.availableSizes = s } }
     
     func connectToFleet() {
-        guard !fleetIpadID.isEmpty else { return }
-        FirebaseManager.shared.connectToFleet(fleetId: fleetIpadID) { [weak self] data in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                self.restoreFromCloud(data: data)
-                
-                if let val = data["companyName"] as? String, !val.isEmpty { self.companyName = val }
-                if let val = data["projectName"] as? String, !val.isEmpty { self.projectName = val }
-                if let val = data["category"] as? String { self.category = val }
-                if let val = data["projectSize"] as? String { self.projectSize = val }
-                if let val = data["lineLeaderName"] as? String, !val.isEmpty { self.lineLeaderName = val }
-                
-                if let val = data["isBonusEligible"] as? Bool { if self.isBonusEligible != val { self.isBonusEligible = val } }
-                if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
-                if let val = data["isCountUp"] as? Bool { self.isCountUp = val }
+            guard !fleetIpadID.isEmpty else { return }
+            FirebaseManager.shared.connectToFleet(fleetId: fleetIpadID) { [weak self] data in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.restoreFromCloud(data: data)
+                    
+                    if let val = data["companyName"] as? String, !val.isEmpty { self.companyName = val }
+                    if let val = data["projectName"] as? String, !val.isEmpty { self.projectName = val }
+                    if let val = data["category"] as? String { self.category = val }
+                    if let val = data["projectSize"] as? String { self.projectSize = val }
+                    if let val = data["lineLeaderName"] as? String, !val.isEmpty { self.lineLeaderName = val }
+                    
+                    if let val = data["isBonusEligible"] as? Bool { if self.isBonusEligible != val { self.isBonusEligible = val } }
+                    if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
+                    if let val = data["isCountUp"] as? Bool { self.isCountUp = val }
 
-                var logsUpdated = false
-                if let histArray = data["scanHistory"] as? [[String: Any]] {
-                    var loadedHistory: [ScanEvent] = []
-                    for dict in histArray {
-                        if let cardID = dict["cardID"] as? String, let rawAction = dict["action"] as? String, let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(), let action = ScanAction(rawValue: rawAction) {
-                            loadedHistory.append(ScanEvent(cardID: cardID, timestamp: stamp, action: action))
+                    // 🚨 AUTO-RESUME TRIGGER 🚨
+                                    if !self.projectName.isEmpty && self.projectName != "No Project Loaded" {
+                                        self.isCountingDown = true
+                                        self.showManualSetup = false
+                                        
+                                        let fbIsPaused = data["isPaused"] as? Bool ?? true
+                                        if !fbIsPaused && self.timer == nil {
+                                            self.startTimer()
+                                        }
+                                    } else {
+                                        // FIXED: Force the iPad back to the main Queue screen, not the Manual form
+                                        self.isCountingDown = false
+                                        self.showManualSetup = false
+                                    }
+
+                    // FIXED: Explicitly grab the active workers so the new iPad doesn't drop them!
+                                    if let transferredActiveWorkers = data["activeWorkers"] as? [String] {
+                                        
+                                        // Force the local workers dictionary to recognize them as currently clocked in
+                                        for wid in transferredActiveWorkers {
+                                            if self.workers[wid] == nil {
+                                                // Create the worker if they don't exist locally yet
+                                                self.workers[wid] = Worker(id: wid, clockInTime: Date(), totalMinutesWorked: 0)
+                                            } else if self.workers[wid]?.clockInTime == nil {
+                                                // Ensure their clock in time isn't nil so the UI shows them as active
+                                                self.workers[wid]?.clockInTime = Date()
+                                            }
+                                        }
+                                        self.recalcTotalPeopleWorking() // Make sure the UI updates the worker count
+                                    }
+                                    // --------------------------
+
+                    var logsUpdated = false
+                    if let histArray = data["scanHistory"] as? [[String: Any]] {
+                        var loadedHistory: [ScanEvent] = []
+                        for dict in histArray {
+                            if let cardID = dict["cardID"] as? String, let rawAction = dict["action"] as? String, let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(), let action = ScanAction(rawValue: rawAction) {
+                                loadedHistory.append(ScanEvent(cardID: cardID, timestamp: stamp, action: action))
+                            }
+                        }
+                        if self.scanHistory.isEmpty && !loadedHistory.isEmpty { self.scanHistory = loadedHistory; self.scanCount = loadedHistory.count; logsUpdated = true }
+                    }
+                    
+                    if let eventArray = data["projectEvents"] as? [[String: Any]] {
+                        var loadedEvents: [ProjectEvent] = []
+                        for dict in eventArray {
+                            if let rawType = dict["type"] as? String, let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(), let type = ProjectEventType(rawValue: rawType) {
+                                loadedEvents.append(ProjectEvent(timestamp: stamp, type: type))
+                            }
+                        }
+                        if self.projectEvents.isEmpty && !loadedEvents.isEmpty { self.projectEvents = loadedEvents; self.pauseCount = loadedEvents.filter { $0.type == .pause }.count; self.lunchCount = loadedEvents.filter { $0.type == .lunch }.count }
+                    }
+                    
+                    if logsUpdated { self.reconstructStateFromLogs() }
+                    
+                    // Force the iPad to overwrite the raw logs with your manual edits
+                    if let banked = data["workerBankedMinutes"] as? [String: Any] {
+                        for (id, val) in banked {
+                            let mins: Double
+                            if let d = val as? Double {
+                                mins = d
+                            } else if let i = val as? Int {
+                                mins = Double(i)
+                            } else if let n = val as? NSNumber {
+                                mins = n.doubleValue
+                            } else {
+                                continue
+                            }
+                            
+                            if var worker = self.workers[id] {
+                                worker.totalMinutesWorked = mins
+                                self.workers[id] = worker
+                            } else {
+                                self.workers[id] = Worker(id: id, clockInTime: nil, totalMinutesWorked: mins)
+                            }
+                        }
+                        self.recalcTotalPeopleWorking()
+                    }
+                    
+                    if let cmd = data["remoteCommand"] as? String, let stamp = (data["commandTimestamp"] as? Timestamp)?.dateValue() {
+                        if self.lastCommandTimestamp == nil || stamp > self.lastCommandTimestamp! {
+                            self.lastCommandTimestamp = stamp
+                            self.handleRemoteCommand(cmd)
                         }
                     }
-                    if self.scanHistory.isEmpty && !loadedHistory.isEmpty { self.scanHistory = loadedHistory; self.scanCount = loadedHistory.count; logsUpdated = true }
-                }
-                
-                if let eventArray = data["projectEvents"] as? [[String: Any]] {
-                    var loadedEvents: [ProjectEvent] = []
-                    for dict in eventArray {
-                        if let rawType = dict["type"] as? String, let stamp = (dict["timestamp"] as? Timestamp)?.dateValue(), let type = ProjectEventType(rawValue: rawType) {
-                            loadedEvents.append(ProjectEvent(timestamp: stamp, type: type))
+                    
+                    if let trueOriginal = data["originalSeconds"] as? Int, trueOriginal > 0 {
+                        if self.countdownSeconds == 0 && self.originalCountdownSeconds != trueOriginal {
+                            self.originalCountdownSeconds = trueOriginal
                         }
-                    }
-                    if self.projectEvents.isEmpty && !loadedEvents.isEmpty { self.projectEvents = loadedEvents; self.pauseCount = loadedEvents.filter { $0.type == .pause }.count; self.lunchCount = loadedEvents.filter { $0.type == .lunch }.count }
-                }
-                
-                if logsUpdated { self.reconstructStateFromLogs() }
-                
-                // 🚨 ADD THIS: Force the iPad to overwrite the raw logs with your manual edits
-                if let banked = data["workerBankedMinutes"] as? [String: Any] {
-                    for (id, val) in banked {
-                        let mins: Double
-                        if let d = val as? Double {
-                            mins = d
-                        } else if let i = val as? Int {
-                            mins = Double(i)
-                        } else if let n = val as? NSNumber {
-                            mins = n.doubleValue
-                        } else {
-                            continue
-                        }
-                        
-                        if var worker = self.workers[id] {
-                            worker.totalMinutesWorked = mins
-                            self.workers[id] = worker
-                        } else {
-                            self.workers[id] = Worker(id: id, clockInTime: nil, totalMinutesWorked: mins)
-                        }
-                    }
-                    self.recalcTotalPeopleWorking()
-                }
-                // ------------------------------------------------------------------------
-                
-                if let cmd = data["remoteCommand"] as? String, let stamp = (data["commandTimestamp"] as? Timestamp)?.dateValue() {
-                    if self.lastCommandTimestamp == nil || stamp > self.lastCommandTimestamp! {
-                        self.lastCommandTimestamp = stamp
-                        self.handleRemoteCommand(cmd)
-                    }
-                }
-                
-                if let trueOriginal = data["originalSeconds"] as? Int, trueOriginal > 0 {
-                    if self.countdownSeconds == 0 && self.originalCountdownSeconds != trueOriginal {
-                        self.originalCountdownSeconds = trueOriginal
                     }
                 }
             }
         }
-    }
     
     func saveCustomAppSettings() {
         if let e = try? JSONEncoder().encode(lunchPeriods) { UserDefaults.standard.set(e, forKey: "lunchPeriods") }
         if let e = try? JSONEncoder().encode(shiftStartTimes) { UserDefaults.standard.set(e, forKey: "shiftStartTimes") }
         if let e = try? JSONEncoder().encode(categories) { UserDefaults.standard.set(e, forKey: "categories") }
         if let e = try? JSONEncoder().encode(projectSizes) { UserDefaults.standard.set(e, forKey: "projectSizes") }
+    }
+    
+    func abortAndArchiveProject() {
+            // Only archive if there is actually a project loaded
+            if !projectName.isEmpty && projectName != "No Project Loaded" {
+                var banked: [String: Double] = [:]
+                
+                for (id, worker) in workers {
+                    // IMPORTANT: Only delete the global lock if they are actively clocked in right now!
+                    if worker.clockInTime != nil {
+                        Firestore.firestore().collection("global_active_workers").document(id).delete()
+                    }
+                    
+                    // Save their banked time for the recycle bin
+                    banked[id] = worker.totalMinutesWorked
+                }
+                
+                let itemData: [String: Any] = [
+                    "company": companyName,
+                    "project": projectName,
+                    "category": category,
+                    "size": projectSize,
+                    "seconds": countdownSeconds,
+                    "originalSeconds": originalCountdownSeconds,
+                    "lineLeaderName": lineLeaderName,
+                    "deletedAt": FieldValue.serverTimestamp(),
+                    "scanHistory": scanHistory.map { [
+                        "cardID": $0.cardID,
+                        "action": $0.action.rawValue,
+                        "timestamp": $0.timestamp
+                    ] },
+                    "projectEvents": projectEvents.map { [
+                        "type": $0.type.rawValue,
+                        "timestamp": $0.timestamp,
+                        "value": $0.value ?? ""
+                    ] },
+                    "workerBankedMinutes": banked,
+                    "isBonusEligible": isBonusEligible,
+                    "bonusIneligibleReason": bonusIneligibleReason
+                ]
+                
+                // Save to the Recycle Bin collection
+                Firestore.firestore().collection("deleted_projects").addDocument(data: itemData)
+            }
+            
+            // After archiving and unlocking workers, run the normal reset to clear the iPad
+            resetData()
+        }
+    
+    func endOfShiftSave() {
+        let now = Date()
+        
+        // 1. Process every worker currently on the clock
+        for (id, var worker) in workers {
+            if let start = worker.clockInTime {
+                // Calculate elapsed minutes since they scanned in
+                let elapsedMinutes = now.timeIntervalSince(start) / 60.0
+                worker.totalMinutesWorked += elapsedMinutes
+                worker.clockInTime = nil // "Clock them out" locally
+                
+                // Save the updated worker back to the dictionary
+                workers[id] = worker
+                
+                // 2. Remove their global lock so they aren't stuck on this iPad for the next shift
+                Firestore.firestore().collection("global_active_workers").document(id).delete()
+                
+                // 3. Log the final clock-out in the history
+                scanHistory.append(ScanEvent(cardID: id, timestamp: now, action: .clockOut))
+            }
+        }
+        
+        // 4. Update the worker count UI
+        recalcTotalPeopleWorking()
+        
+        // 5. Add a "Shift Saved" event to the logs
+        projectEvents.append(ProjectEvent(timestamp: now, type: .save))
+        
+        // 6. Push the 'Clean' state (Project loaded but 0 workers) to Firebase
+        // This ensures that when this iPad (or another one) loads this project, it starts empty.
+        saveState()
+        pushStateToCloud(force: true)
+        
+        print("✅ Shift Ended: All workers banked and locks released.")
     }
     
     private func loadCustomAppSettings() {
