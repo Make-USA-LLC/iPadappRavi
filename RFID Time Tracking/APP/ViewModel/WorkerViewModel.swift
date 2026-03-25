@@ -985,7 +985,7 @@ class WorkerViewModel: ObservableObject {
     
     func connectToFleet() {
             guard !fleetIpadID.isEmpty else { return }
-            FirebaseManager.shared.connectToFleet(fleetId: fleetIpadID) { [weak self] data in
+            FirebaseManager.shared.connectToFleet(fleetId: fleetIpadID) { [weak self] data, isLocalChange in
                 guard let self else { return }
                 DispatchQueue.main.async {
                     self.restoreFromCloud(data: data)
@@ -1000,37 +1000,54 @@ class WorkerViewModel: ObservableObject {
                     if let val = data["bonusIneligibleReason"] as? String { self.bonusIneligibleReason = val }
                     if let val = data["isCountUp"] as? Bool { self.isCountUp = val }
 
-                    // 🚨 AUTO-RESUME TRIGGER 🚨
-                                    if !self.projectName.isEmpty && self.projectName != "No Project Loaded" {
-                                        self.isCountingDown = true
-                                        self.showManualSetup = false
-                                        
-                                        let fbIsPaused = data["isPaused"] as? Bool ?? true
-                                        if !fbIsPaused && self.timer == nil {
-                                            self.startTimer()
-                                        }
-                                    } else {
-                                        // FIXED: Force the iPad back to the main Queue screen, not the Manual form
-                                        self.isCountingDown = false
-                                        self.showManualSetup = false
-                                    }
+                    // 🚨 AUTO-RESUME TRIGGER
+                    if !self.projectName.isEmpty && self.projectName != "No Project Loaded" {
+                        self.isCountingDown = true
+                        self.showManualSetup = false
+                        
+                        let fbIsPaused = data["isPaused"] as? Bool ?? true
+                        if !fbIsPaused && self.timer == nil {
+                            self.startTimer()
+                        }
+                    } else {
+                        self.isCountingDown = false
+                        self.showManualSetup = false
+                    }
 
-                    // FIXED: Explicitly grab the active workers so the new iPad doesn't drop them!
-                                    if let transferredActiveWorkers = data["activeWorkers"] as? [String] {
-                                        
-                                        // Force the local workers dictionary to recognize them as currently clocked in
-                                        for wid in transferredActiveWorkers {
-                                            if self.workers[wid] == nil {
-                                                // Create the worker if they don't exist locally yet
-                                                self.workers[wid] = Worker(id: wid, clockInTime: Date(), totalMinutesWorked: 0)
-                                            } else if self.workers[wid]?.clockInTime == nil {
-                                                // Ensure their clock in time isn't nil so the UI shows them as active
-                                                self.workers[wid]?.clockInTime = Date()
-                                            }
-                                        }
-                                        self.recalcTotalPeopleWorking() // Make sure the UI updates the worker count
-                                    }
-                                    // --------------------------
+                    // 🚨 DASHBOARD OVERRIDE LOGIC 🚨
+                    // If the change didn't originate from this iPad, it must be the React Dashboard overriding us.
+                    if !isLocalChange {
+                        print("⚠️ DASHBOARD OVERRIDE: Accepting remote server values.")
+                        
+                        // 1. Force the Project Timer
+                        if let serverSeconds = data["secondsRemaining"] as? Int {
+                            self.countdownSeconds = serverSeconds
+                        }
+                        
+                        // 2. Force the Active Workers List
+                        if let serverWorkers = data["activeWorkers"] as? [String] {
+                            
+                            // First, clock out anyone locally who IS NOT in the server array
+                            let currentLocalWorkers = Array(self.workers.keys)
+                            for wid in currentLocalWorkers {
+                                if !serverWorkers.contains(wid) {
+                                    // Server says they shouldn't be here, so remove them locally
+                                    self.workers[wid]?.clockInTime = nil
+                                }
+                            }
+                            
+                            // Second, clock in anyone locally who IS in the server array
+                            for wid in serverWorkers {
+                                if self.workers[wid] == nil {
+                                    self.workers[wid] = Worker(id: wid, clockInTime: Date(), totalMinutesWorked: 0)
+                                } else if self.workers[wid]?.clockInTime == nil {
+                                    self.workers[wid]?.clockInTime = Date()
+                                }
+                            }
+                            self.recalcTotalPeopleWorking()
+                        }
+                    }
+                    // ---------------------------------
 
                     var logsUpdated = false
                     if let histArray = data["scanHistory"] as? [[String: Any]] {
@@ -1040,7 +1057,12 @@ class WorkerViewModel: ObservableObject {
                                 loadedHistory.append(ScanEvent(cardID: cardID, timestamp: stamp, action: action))
                             }
                         }
-                        if self.scanHistory.isEmpty && !loadedHistory.isEmpty { self.scanHistory = loadedHistory; self.scanCount = loadedHistory.count; logsUpdated = true }
+                        // Only adopt remote logs if we're empty OR if a dashboard override occurred
+                        if (!isLocalChange || self.scanHistory.isEmpty) && !loadedHistory.isEmpty {
+                            self.scanHistory = loadedHistory
+                            self.scanCount = loadedHistory.count
+                            logsUpdated = true
+                        }
                     }
                     
                     if let eventArray = data["projectEvents"] as? [[String: Any]] {
@@ -1055,19 +1077,14 @@ class WorkerViewModel: ObservableObject {
                     
                     if logsUpdated { self.reconstructStateFromLogs() }
                     
-                    // Force the iPad to overwrite the raw logs with your manual edits
+                    // Force the iPad to overwrite the raw logs with manual edits
                     if let banked = data["workerBankedMinutes"] as? [String: Any] {
                         for (id, val) in banked {
                             let mins: Double
-                            if let d = val as? Double {
-                                mins = d
-                            } else if let i = val as? Int {
-                                mins = Double(i)
-                            } else if let n = val as? NSNumber {
-                                mins = n.doubleValue
-                            } else {
-                                continue
-                            }
+                            if let d = val as? Double { mins = d }
+                            else if let i = val as? Int { mins = Double(i) }
+                            else if let n = val as? NSNumber { mins = n.doubleValue }
+                            else { continue }
                             
                             if var worker = self.workers[id] {
                                 worker.totalMinutesWorked = mins

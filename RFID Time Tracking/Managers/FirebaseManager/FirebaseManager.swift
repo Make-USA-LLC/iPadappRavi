@@ -41,7 +41,7 @@ final class FirebaseManager {
         }
     }
 
-    // MARK: - LINES (NEW)
+    // MARK: - LINES
     func fetchLines(completion: @escaping ([String]) -> Void) {
         db.collection("lines").order(by: "name").getDocuments { snapshot, error in
             guard let docs = snapshot?.documents else {
@@ -54,7 +54,7 @@ final class FirebaseManager {
         }
     }
     
-    // MARK: - GLOBAL WORKER LOCK (Prevent Double Logins)
+    // MARK: - GLOBAL WORKER LOCK
     func checkGlobalWorkerStatus(workerId: String, completion: @escaping (String?) -> Void) {
         db.collection("global_active_workers").document(workerId).getDocument { snapshot, error in
             guard let data = snapshot?.data(),
@@ -113,18 +113,21 @@ final class FirebaseManager {
             }
     }
 
-    // MARK: - FLEET SYNC
+    // MARK: - FLEET SYNC (UPDATED)
+    // We added the isLocalChange boolean to the callback
     func connectToFleet(
         fleetId: String,
-        onUpdate: @escaping ([String: Any]) -> Void
+        onUpdate: @escaping ([String: Any], Bool) -> Void
     ) {
         fleetListener?.remove()
 
         fleetListener = db.collection("ipads")
             .document(fleetId)
             .addSnapshotListener { snap, _ in
-                guard let data = snap?.data() else { return }
-                onUpdate(data)
+                guard let document = snap, let data = document.data() else { return }
+                // TRUE if this change originated from the iPad. FALSE if it came from the Web Dashboard.
+                let isLocalChange = document.metadata.hasPendingWrites
+                onUpdate(data, isLocalChange)
             }
     }
 
@@ -142,12 +145,10 @@ final class FirebaseManager {
         db.collection("reports").addDocument(data: report)
     }
     
-    // --- NEW: Save to specific Machine Setup collection ---
     func saveMachineSetupReport(_ report: [String: Any]) {
         db.collection("machine_setup_reports").addDocument(data: report)
     }
     
-    // --- NEW: Save Issue Report (Tech/QC Duration) ---
     func saveIssueReport(_ report: [String: Any]) {
         db.collection("issue_reports").addDocument(data: report)
     }
